@@ -12,13 +12,24 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..600&family=Manrope:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 
-<link rel="stylesheet" href="css/style.css" />
+<!-- ABSOLUTE PATH + CACHE-BUST: muhim! relative path muammosini hal qiladi -->
+<link rel="stylesheet" href="/webapp/css/style.css?v=4.1" />
+
+<!-- Critical inline CSS — agar tashqi CSS ulanmasa ham, modal'lar yashirin qoladi -->
+<style>
+  body { margin: 0; font-family: system-ui, sans-serif; background: #F4EFE6; }
+  .sheet, .cart-drawer, .success-modal, .toast { position: fixed; inset: 0; visibility: hidden; pointer-events: none; opacity: 0; }
+  .sheet.open, .cart-drawer.open, .success-modal.open, .toast.show { visibility: visible; pointer-events: auto; opacity: 1; }
+  .grain { position: fixed; inset: 0; pointer-events: none; }
+  .hdr { position: fixed; top: 0; left: 0; right: 0; height: 60px; z-index: 100; background: rgba(255,253,250,0.85); display: flex; justify-content: space-between; align-items: center; padding: 0 18px; }
+  .app-content { padding-top: 60px; min-height: 100vh; }
+  .hdr-bubble { transform: scale(0); }
+</style>
 </head>
 
 <body>
   <div class="grain"></div>
 
-  <!-- Persistent Header -->
   <header class="hdr">
     <button id="logo-btn" class="hdr-mark" data-nav="home">
       <span class="hdr-symbol">✦</span>
@@ -43,10 +54,8 @@
     </div>
   </header>
 
-  <!-- Main views container -->
   <main id="app-content" class="app-content"></main>
 
-  <!-- Cart Drawer -->
   <div id="cart-drawer" class="cart-drawer" aria-hidden="true">
     <div class="cart-backdrop"></div>
     <aside class="cart-panel">
@@ -69,7 +78,6 @@
     </aside>
   </div>
 
-  <!-- Checkout Sheet -->
   <div id="checkout-sheet" class="sheet" aria-hidden="true">
     <div class="sheet-backdrop"></div>
     <div class="sheet-panel">
@@ -114,7 +122,6 @@
     </div>
   </div>
 
-  <!-- Success Modal -->
   <div id="success-modal" class="success-modal" aria-hidden="true">
     <div class="success-content">
       <div class="success-circle">
@@ -132,7 +139,7 @@
   <div id="toast" class="toast" aria-live="polite"></div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r158/three.min.js"></script>
-  <script src="js/main.js"></script>
+  <!-- ABSOLUTE PATH + CACHE-BUST -->
+  <script src="/webapp/js/main.js?v=4.1"></script>
 </body>
 </html>
-
