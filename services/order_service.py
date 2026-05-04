@@ -67,7 +67,6 @@ async def create_order_from_cart(
     order.total_amount = total_amount
     order.total_cost = total_cost
     order.tax_amount = total_amount * tax_rate
-    # Sof foyda = tushum - tan narxi - soliq
     order.total_profit = total_amount - total_cost - order.tax_amount
 
     await clear_cart(session, user_id)
@@ -82,16 +81,36 @@ async def create_quick_sale(
     product_id: int,
     quantity: float,
     buyer_name: str = "Noma'lum",
+    custom_price: Optional[float] = None,
 ) -> Optional[Order]:
-    """Admin tomonidan tezkor sotuv (savatsiz)"""
+    """
+    Admin tomonidan tezkor sotuv (savatsiz)
+
+    custom_price: agar berilsa, mahsulot narxi o'rniga ishlatiladi
+                  (mijozga arzonroq sotilgan holatlar uchun)
+    """
     product = await session.get(Product, product_id)
     if not product or product.stock_quantity < quantity:
         return None
 
     tax_rate = await get_tax_rate(session)
-    total_amount = product.sale_price * quantity
+
+    # Sotilgan narx: agar custom_price berilgan bo'lsa, uni ishlatamiz
+    actual_sale_price = custom_price if custom_price is not None else product.sale_price
+
+    total_amount = actual_sale_price * quantity
     total_cost = product.cost_price * quantity
     tax_amount = total_amount * tax_rate
+
+    # Notes — agar narx o'zgartirilgan bo'lsa, eslab qoldiramiz
+    notes = None
+    if custom_price is not None and custom_price != product.sale_price:
+        diff = product.sale_price - custom_price
+        notes = (
+            f"Asl narx: {product.sale_price:.0f}, "
+            f"Sotilgan: {custom_price:.0f} "
+            f"(farq: {diff:+.0f})"
+        )
 
     order = Order(
         user_id=user_id,
@@ -100,10 +119,11 @@ async def create_quick_sale(
         tax_amount=tax_amount,
         tax_rate=tax_rate,
         total_profit=total_amount - total_cost - tax_amount,
-        status=OrderStatus.COMPLETED,  # Tezkor sotuv darrov yakunlanadi
+        status=OrderStatus.COMPLETED,
         delivery_address="Do'konda",
         phone=buyer_name,
         payment_method=PaymentMethod.CASH,
+        notes=notes,
     )
     session.add(order)
     await session.flush()
@@ -113,9 +133,9 @@ async def create_quick_sale(
         product_id=product.id,
         product_name=product.name,
         quantity=quantity,
-        sale_price=product.sale_price,
+        sale_price=actual_sale_price,           # ⬅️ qo'lda kiritilgan narx
         cost_price=product.cost_price,
-        profit=(product.sale_price - product.cost_price) * quantity,
+        profit=(actual_sale_price - product.cost_price) * quantity,
     )
     session.add(item)
 
@@ -126,19 +146,17 @@ async def create_quick_sale(
         type=StockMovementType.SALE,
         quantity=quantity,
         cost_price_at_time=product.cost_price,
-        reason=f"Buyurtma #{order.id}",
+        reason=f"Buyurtma #{order.id}" + (f" ({notes})" if notes else ""),
     ))
 
     return order
 
 
 async def confirm_order(session: AsyncSession, order_id: int) -> Optional[Order]:
-    """Buyurtmani tasdiqlash + ombordan ayirish"""
     order = await get_order(session, order_id)
     if not order or order.status != OrderStatus.NEW:
         return None
 
-    # Mahsulotlarni ombordan ayirish
     for item in order.items:
         product = await session.get(Product, item.product_id)
         if product:
@@ -164,7 +182,6 @@ async def update_order_status(
     if not order:
         return None
 
-    # Bekor qilinganda ombordga qaytarish (agar tasdiqlangan bo'lgan bo'lsa)
     if new_status == OrderStatus.CANCELLED and order.status in (
         OrderStatus.CONFIRMED, OrderStatus.DELIVERING
     ):
