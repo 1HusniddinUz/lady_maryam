@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Muhabbat — Atelier</title>
+
+<!-- Telegram WebApp SDK -->
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+<!-- Fontlar -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Manrope:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+
+<link rel="stylesheet" href="css/style.css" />
+</head>
+
+<body>
+  <!-- Grain overlay (texture) -->
+  <div class="grain"></div>
+
+  <!-- Header -->
+  <header class="hdr">
+    <div class="hdr-mark">
+      <span class="hdr-symbol">✦</span>
+      <span class="hdr-name">muhabbat</span>
+    </div>
+    <button id="cart-btn" class="hdr-cart" aria-label="Savat">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M6 6h15l-2 11H8L6 6Z"/>
+        <path d="M6 6L5 3H2"/>
+        <circle cx="9" cy="21" r="1.2"/>
+        <circle cx="18" cy="21" r="1.2"/>
+      </svg>
+      <span id="cart-count" class="cart-bubble">0</span>
+    </button>
+  </header>
+
+  <!-- Hero (Three.js sahna) -->
+  <section class="hero">
+    <canvas id="hero-canvas" class="hero-canvas"></canvas>
+
+    <div class="hero-content">
+      <p class="hero-eyebrow">Atelier · Toshkent</p>
+      <h1 class="hero-title">
+        Sokin <em>nafosat</em><br/>
+        — har bir libosda.
+      </h1>
+      <p class="hero-sub">
+        Sifatli matolar, mukammal tikish, vaqt sinovidan o'tgan dizayn.
+      </p>
+      <a href="#featured" class="hero-cta">
+        <span>Kolleksiyani ko'rish</span>
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M3 7h8M7 3l4 4-4 4"/>
+        </svg>
+      </a>
+    </div>
+
+    <div class="hero-scroll-hint">
+      <span>aylantiring</span>
+      <div class="hero-scroll-line"></div>
+    </div>
+  </section>
+
+  <!-- Featured products -->
+  <section id="featured" class="featured">
+    <div class="section-head">
+      <p class="section-eyebrow">— hozir mashhur</p>
+      <h2 class="section-title">Tanlangan asarlar</h2>
+    </div>
+
+    <div id="products-grid" class="products-grid">
+      <!-- JS bilan to'ldiriladi -->
+      <div class="product-skeleton"></div>
+      <div class="product-skeleton"></div>
+      <div class="product-skeleton"></div>
+      <div class="product-skeleton"></div>
+    </div>
+  </section>
+
+  <!-- Manifest section -->
+  <section class="manifest">
+    <div class="manifest-line"></div>
+    <p class="manifest-quote">
+      «Liboslar shunchaki kiyim emas — ular hikoya, his va xotira.»
+    </p>
+    <p class="manifest-author">— Muhabbat Atelier</p>
+  </section>
+
+  <!-- Footer -->
+  <footer class="ftr">
+    <p class="ftr-mark">muhabbat <span>✦</span> 2026</p>
+    <p class="ftr-note">Toshkent · Sof tikuv · Cheklanmagan e'tibor</p>
+  </footer>
+
+  <!-- Cart Drawer -->
+  <div id="cart-drawer" class="cart-drawer" aria-hidden="true">
+    <div class="cart-backdrop"></div>
+    <aside class="cart-panel">
+      <header class="cart-head">
+        <h3>Savatingiz</h3>
+        <button id="cart-close" aria-label="Yopish">✕</button>
+      </header>
+      <div id="cart-items" class="cart-items">
+        <!-- JS bilan to'ldiriladi -->
+      </div>
+      <div class="cart-empty" id="cart-empty">
+        <p>Savatingiz hali bo'sh</p>
+      </div>
+      <footer id="cart-footer" class="cart-footer" hidden>
+        <div class="cart-total">
+          <span>Jami</span>
+          <strong id="cart-total-amount">0 so'm</strong>
+        </div>
+        <button id="checkout-btn" class="btn-primary">Buyurtma berish</button>
+      </footer>
+    </aside>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast" aria-live="polite"></div>
+
+  <!-- Three.js (CDN) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r158/three.min.js"></script>
+
+  <!-- App -->
+  <script src="js/main.js"></script>
+</body>
+</html>

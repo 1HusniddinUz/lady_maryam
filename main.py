@@ -1,42 +1,65 @@
 """
-@muhabbat0093 ERP Bot — Render uchun moslashtirilgan
-Bot polling + HTTP server (UptimeRobot ping uchun)
+@muhabbat0093 ERP Bot — Render + WebApp
+Bot polling + HTTP server (API + Static WebApp)
 """
 
 import asyncio
 import logging
 import os
+from pathlib import Path
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import MenuButtonWebApp, WebAppInfo
 from aiohttp import web
 
 from config.settings import settings
 from database.engine import init_db, migrate_old_data
 from handlers import register_all_handlers
 from utils.logger import setup_logging
+from api import register_api_routes
 
 
-# ─── HTTP endpoints (Render + UptimeRobot ping uchun) ────────────────
+# ─── HTTP endpoints ───────────────────────────────────────────────────
 
 async def root_handler(request: web.Request) -> web.Response:
-    return web.Response(
-        text="🤖 @muhabbat0093 ERP Bot ishlayapti\n\nStatus: ✅ OK",
-        content_type="text/plain",
-    )
+    """Root - WebApp ga redirect"""
+    raise web.HTTPFound("/webapp/")
 
 
 async def health_handler(request: web.Request) -> web.Response:
     return web.Response(text="OK", status=200)
 
 
-def create_web_app() -> web.Application:
+def create_web_app(bot: Bot) -> web.Application:
     app = web.Application()
-    app.router.add_get('/', root_handler)
-    app.router.add_get('/health', health_handler)
-    app.router.add_get('/healthz', health_handler)
-    app.router.add_get('/ping', health_handler)
+
+    # API routes
+    register_api_routes(app)
+
+    # Bot ni request'larga injekt qilish (admin bildirishnomalari uchun)
+    app["bot"] = bot
+
+    # Health check
+    app.router.add_get("/health", health_handler)
+    app.router.add_get("/healthz", health_handler)
+    app.router.add_get("/ping", health_handler)
+    app.router.add_get("/", root_handler)
+
+    # Static WebApp fayllar
+    webapp_dir = Path(__file__).parent / "webapp"
+    if webapp_dir.exists():
+        app.router.add_static(
+            "/webapp/",
+            path=str(webapp_dir),
+            name="webapp",
+            show_index=True,  # index.html avto-yuklanadi
+        )
+        logging.info(f"📂 WebApp dir: {webapp_dir}")
+    else:
+        logging.warning(f"⚠️ WebApp dir topilmadi: {webapp_dir}")
+
     return app
 
 
@@ -46,6 +69,21 @@ async def on_startup(bot: Bot) -> None:
     me = await bot.get_me()
     logging.info(f"✅ Bot @{me.username} ishga tushdi")
 
+    # Menu button: WebApp'ni ochuvchi doimiy tugma
+    webapp_url = os.getenv("WEBAPP_URL", "").strip()
+    if webapp_url:
+        try:
+            await bot.set_chat_menu_button(
+                menu_button=MenuButtonWebApp(
+                    text="🛍 Do'kon",
+                    web_app=WebAppInfo(url=webapp_url),
+                )
+            )
+            logging.info(f"✅ Menu button WebApp ulandi: {webapp_url}")
+        except Exception as e:
+            logging.warning(f"Menu button xato: {e}")
+
+    # Adminlarga xabar
     for admin_id in settings.admin_ids:
         try:
             await bot.send_message(
@@ -53,14 +91,11 @@ async def on_startup(bot: Bot) -> None:
                 f"🚀 Bot ishga tushdi!\n\n"
                 f"🤖 @{me.username}\n"
                 f"🌐 Server: Render Cloud\n"
-                f"📊 Holat: faol\n"
-                f"⚙️ Versiya: 3.0 ERP"
+                f"🛍 WebApp: {webapp_url or 'sozlanmagan'}"
             )
         except Exception as e:
             logging.warning(f"Adminga xabar yuborilmadi {admin_id}: {e}")
 
-
-# ─── ASOSIY ───────────────────────────────────────────────────────────
 
 async def main() -> None:
     setup_logging()
@@ -68,10 +103,8 @@ async def main() -> None:
 
     await init_db()
     logging.info("✅ Ma'lumotlar bazasi tayyor")
-
     await migrate_old_data()
 
-    # Bot va dispatcher
     bot = Bot(
         token=settings.bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
@@ -80,16 +113,15 @@ async def main() -> None:
     register_all_handlers(dp)
     dp.startup.register(on_startup)
 
-    # HTTP server (Render port'da tinglash MAJBURIY)
-    port = int(os.getenv('PORT', 10000))
-    app = create_web_app()
+    # HTTP server
+    port = int(os.getenv("PORT", 10000))
+    app = create_web_app(bot)
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', port)
+    site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
     logging.info(f"🌐 HTTP server ishga tushdi: 0.0.0.0:{port}")
 
-    # Bot va HTTP server parallel ishlaydi
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         logging.info("🤖 Bot polling boshlandi")
@@ -100,7 +132,6 @@ async def main() -> None:
     finally:
         await runner.cleanup()
         await bot.session.close()
-        logging.info("👋 Bot to'xtatildi")
 
 
 if __name__ == "__main__":
