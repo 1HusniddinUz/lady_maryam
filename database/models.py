@@ -8,7 +8,7 @@ from typing import Optional, List
 
 from sqlalchemy import (
     BigInteger, Boolean, DateTime, Float, ForeignKey, Integer,
-    String, Text, Enum as SAEnum
+    String, Text, Enum as SAEnum, UniqueConstraint
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -62,6 +62,7 @@ class User(Base):
 
     orders: Mapped[List["Order"]] = relationship(back_populates="user")
     cart_items: Mapped[List["CartItem"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    wishlist_items: Mapped[List["WishlistItem"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
 # ─── CATEGORY ─────────────────────────────────────────────────────────
@@ -90,10 +91,10 @@ class Product(Base):
     description: Mapped[Optional[str]] = mapped_column(Text)
     photo_file_id: Mapped[Optional[str]] = mapped_column(String(255))
     category_id: Mapped[Optional[int]] = mapped_column(ForeignKey("categories.id"))
-    cost_price: Mapped[float] = mapped_column(Float, default=0.0)       # Tan narxi
-    sale_price: Mapped[float] = mapped_column(Float, default=0.0)       # Sotuv narxi
-    stock_quantity: Mapped[float] = mapped_column(Float, default=0.0)   # Qoldiq
-    unit: Mapped[str] = mapped_column(String(20), default="dona")       # dona/kg/litr
+    cost_price: Mapped[float] = mapped_column(Float, default=0.0)
+    sale_price: Mapped[float] = mapped_column(Float, default=0.0)
+    stock_quantity: Mapped[float] = mapped_column(Float, default=0.0)
+    unit: Mapped[str] = mapped_column(String(20), default="dona")
     barcode: Mapped[Optional[str]] = mapped_column(String(50), index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -103,6 +104,7 @@ class Product(Base):
     movements: Mapped[List["StockMovement"]] = relationship(back_populates="product")
     cart_items: Mapped[List["CartItem"]] = relationship(back_populates="product")
     order_items: Mapped[List["OrderItem"]] = relationship(back_populates="product")
+    wishlist_items: Mapped[List["WishlistItem"]] = relationship(back_populates="product", cascade="all, delete-orphan")
 
     @property
     def is_in_stock(self) -> bool:
@@ -150,6 +152,23 @@ class CartItem(Base):
     product: Mapped["Product"] = relationship(back_populates="cart_items")
 
 
+# ─── WISHLIST (YANGI) ─────────────────────────────────────────────────
+
+class WishlistItem(Base):
+    __tablename__ = "wishlist_items"
+    __table_args__ = (
+        UniqueConstraint("user_id", "product_id", name="uq_wishlist_user_product"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    user: Mapped["User"] = relationship(back_populates="wishlist_items")
+    product: Mapped["Product"] = relationship(back_populates="wishlist_items")
+
+
 # ─── ORDER ────────────────────────────────────────────────────────────
 
 class Order(Base):
@@ -174,15 +193,13 @@ class Order(Base):
     items: Mapped[List["OrderItem"]] = relationship(back_populates="order", cascade="all, delete-orphan")
 
 
-# ─── ORDER ITEM ───────────────────────────────────────────────────────
-
 class OrderItem(Base):
     __tablename__ = "order_items"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"))
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
-    product_name: Mapped[str] = mapped_column(String(255))   # arxiv uchun
+    product_name: Mapped[str] = mapped_column(String(255))
     quantity: Mapped[float] = mapped_column(Float)
     sale_price: Mapped[float] = mapped_column(Float)
     cost_price: Mapped[float] = mapped_column(Float)
@@ -209,7 +226,7 @@ class Expense(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
-# ─── SETTINGS (KV STORE) ──────────────────────────────────────────────
+# ─── SETTINGS ─────────────────────────────────────────────────────────
 
 class AppSetting(Base):
     __tablename__ = "app_settings"

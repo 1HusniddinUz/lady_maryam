@@ -3,7 +3,7 @@ from database.models import (
     Base, User, UserRole, Category, Product,
     StockMovement, StockMovementType, CartItem,
     Order, OrderItem, OrderStatus, PaymentMethod,
-    Expense, AppSetting
+    Expense, AppSetting, WishlistItem
 )
 
 __all__ = [
@@ -11,5 +11,5 @@ __all__ = [
     "Base", "User", "UserRole", "Category", "Product",
     "StockMovement", "StockMovementType", "CartItem",
     "Order", "OrderItem", "OrderStatus", "PaymentMethod",
-    "Expense", "AppSetting",
+    "Expense", "AppSetting", "WishlistItem",
 ]
