@@ -1,6 +1,7 @@
 """
-@muhabbat0093 ERP Bot — Render + WebApp
+@muhabbat0093 ERP Bot — Render + WebApp (v2)
 Bot polling + HTTP server (API + Static WebApp)
+TUZATILDI: index.html avto-yuklanadi, "Index of /" emas
 """
 
 import asyncio
@@ -21,10 +22,12 @@ from utils.logger import setup_logging
 from api import register_api_routes
 
 
+WEBAPP_DIR = Path(__file__).parent / "webapp"
+
+
 # ─── HTTP endpoints ───────────────────────────────────────────────────
 
 async def root_handler(request: web.Request) -> web.Response:
-    """Root - WebApp ga redirect"""
     raise web.HTTPFound("/webapp/")
 
 
@@ -32,33 +35,51 @@ async def health_handler(request: web.Request) -> web.Response:
     return web.Response(text="OK", status=200)
 
 
+async def webapp_index(request: web.Request) -> web.Response:
+    """ /webapp/ uchun index.html ni yuborish """
+    index_path = WEBAPP_DIR / "index.html"
+    if not index_path.exists():
+        return web.Response(text="WebApp topilmadi", status=404)
+    return web.FileResponse(index_path, headers={
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+    })
+
+
+async def webapp_redirect(request: web.Request) -> web.Response:
+    raise web.HTTPMovedPermanently("/webapp/")
+
+
 def create_web_app(bot: Bot) -> web.Application:
     app = web.Application()
 
-    # API routes
+    # API routes (avval qo'yiladi - prioritetli)
     register_api_routes(app)
 
-    # Bot ni request'larga injekt qilish (admin bildirishnomalari uchun)
     app["bot"] = bot
 
-    # Health check
+    # Health
     app.router.add_get("/health", health_handler)
     app.router.add_get("/healthz", health_handler)
     app.router.add_get("/ping", health_handler)
     app.router.add_get("/", root_handler)
 
-    # Static WebApp fayllar
-    webapp_dir = Path(__file__).parent / "webapp"
-    if webapp_dir.exists():
+    # ⚡ MUHIM: Index'ni alohida route qilamiz (static'dan oldin)
+    app.router.add_get("/webapp", webapp_redirect)
+    app.router.add_get("/webapp/", webapp_index)
+    app.router.add_get("/webapp/index.html", webapp_index)
+
+    # Endi static fayllar (CSS, JS, rasmlar)
+    if WEBAPP_DIR.exists():
         app.router.add_static(
             "/webapp/",
-            path=str(webapp_dir),
-            name="webapp",
-            show_index=True,  # index.html avto-yuklanadi
+            path=str(WEBAPP_DIR),
+            name="webapp_static",
+            show_index=False,   # 🚫 directory listing chiqarmaslik
+            follow_symlinks=False,
         )
-        logging.info(f"📂 WebApp dir: {webapp_dir}")
+        logging.info(f"📂 WebApp dir: {WEBAPP_DIR}")
     else:
-        logging.warning(f"⚠️ WebApp dir topilmadi: {webapp_dir}")
+        logging.warning(f"⚠️ WebApp dir topilmadi: {WEBAPP_DIR}")
 
     return app
 
@@ -69,7 +90,6 @@ async def on_startup(bot: Bot) -> None:
     me = await bot.get_me()
     logging.info(f"✅ Bot @{me.username} ishga tushdi")
 
-    # Menu button: WebApp'ni ochuvchi doimiy tugma
     webapp_url = os.getenv("WEBAPP_URL", "").strip()
     if webapp_url:
         try:
@@ -83,18 +103,16 @@ async def on_startup(bot: Bot) -> None:
         except Exception as e:
             logging.warning(f"Menu button xato: {e}")
 
-    # Adminlarga xabar
     for admin_id in settings.admin_ids:
         try:
             await bot.send_message(
                 admin_id,
                 f"🚀 Bot ishga tushdi!\n\n"
                 f"🤖 @{me.username}\n"
-                f"🌐 Server: Render Cloud\n"
-                f"🛍 WebApp: {webapp_url or 'sozlanmagan'}"
+                f"🛍 WebApp: {'✅ ulangan' if webapp_url else '❌ sozlanmagan'}"
             )
         except Exception as e:
-            logging.warning(f"Adminga xabar yuborilmadi {admin_id}: {e}")
+            logging.warning(f"Adminga xabar: {e}")
 
 
 async def main() -> None:
@@ -113,14 +131,13 @@ async def main() -> None:
     register_all_handlers(dp)
     dp.startup.register(on_startup)
 
-    # HTTP server
     port = int(os.getenv("PORT", 10000))
     app = create_web_app(bot)
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    logging.info(f"🌐 HTTP server ishga tushdi: 0.0.0.0:{port}")
+    logging.info(f"🌐 HTTP server: 0.0.0.0:{port}")
 
     try:
         await bot.delete_webhook(drop_pending_updates=True)
