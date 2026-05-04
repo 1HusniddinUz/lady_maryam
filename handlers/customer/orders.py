@@ -1,5 +1,8 @@
 """
 Mijoz uchun buyurtma berish (checkout)
+
+TUZATILGAN: DetachedInstanceError - barcha session-bog'liq ma'lumotlar
+session ichida olinadi va o'zgaruvchilarga saqlanadi.
 """
 
 import logging
@@ -11,7 +14,9 @@ from config.settings import settings
 from database.engine import get_session
 from database.models import PaymentMethod, OrderStatus
 from services.cart_service import cart_total
-from services.order_service import create_order_from_cart, get_user_orders
+from services.order_service import (
+    create_order_from_cart, get_user_orders, get_order
+)
 from services.user_service import get_user_by_tg_id
 from keyboards.customer_kb import (
     payment_method_kb, confirm_order_kb, customer_main_kb, share_location_kb
@@ -31,8 +36,10 @@ async def checkout_start(call: CallbackQuery, state: FSMContext) -> None:
             await call.answer("❌ Xato")
             return
         cart = await cart_total(session, user.id)
+        has_items = bool(cart["items"])
+        cart_total_value = cart["total"]
 
-    if not cart["items"]:
+    if not has_items:
         await call.answer("🛒 Savatingiz bo'sh", show_alert=True)
         return
 
@@ -42,7 +49,7 @@ async def checkout_start(call: CallbackQuery, state: FSMContext) -> None:
         pass
 
     await state.set_state(Checkout.address)
-    await state.update_data(cart_total=cart["total"])
+    await state.update_data(cart_total=cart_total_value)
 
     await call.message.answer(
         "📍 <b>Yetkazib berish manzili</b>\n\n"
@@ -89,10 +96,9 @@ async def _ask_phone(message: Message, state: FSMContext) -> None:
     """Telefon raqamni so'rash"""
     async with get_session() as session:
         user = await get_user_by_tg_id(session, message.from_user.id)
+        saved_phone = user.phone if user else None  # session ichida olib qoldik
 
-    saved_phone = user.phone if user else None
     if saved_phone:
-        # Mavjud telefonni tasdiqlash
         await state.update_data(phone=saved_phone)
         await message.answer(
             f"📱 Bog'lanish uchun telefon: <code>{saved_phone}</code>\n\n"
@@ -144,23 +150,30 @@ async def checkout_payment(call: CallbackQuery, state: FSMContext) -> None:
         PaymentMethod.ONLINE: "📱 Click / Payme",
     }
     method = method_map.get(method_str, PaymentMethod.CASH)
-    await state.update_data(payment_method=method.value, payment_name=method_names[method])
+    await state.update_data(
+        payment_method=method.value,
+        payment_name=method_names[method],
+    )
 
     data = await state.get_data()
 
-    # Savatni ko'rsatish
+    # Savatni session ichida formatlab qoldiramiz
     async with get_session() as session:
         user = await get_user_by_tg_id(session, call.from_user.id)
         cart = await cart_total(session, user.id)
 
+        cart_lines = []
+        for i, item in enumerate(cart["items"], 1):
+            cart_lines.append(
+                f"{i}. {item.product.name}\n"
+                f"   {item.quantity:g} × {fmt_money(item.product.sale_price)}"
+            )
+        cart_total_value = cart["total"]
+
     text = "📋 <b>Buyurtmani tasdiqlang:</b>\n\n"
-    for i, item in enumerate(cart["items"], 1):
-        text += (
-            f"{i}. {item.product.name}\n"
-            f"   {item.quantity:g} × {fmt_money(item.product.sale_price)}\n"
-        )
-    text += "\n━━━━━━━━━━━━━━━━━━\n"
-    text += f"💰 <b>Jami: {fmt_money(cart['total'])}</b>\n"
+    text += "\n".join(cart_lines)
+    text += "\n\n━━━━━━━━━━━━━━━━━━\n"
+    text += f"💰 <b>Jami: {fmt_money(cart_total_value)}</b>\n"
     text += f"📍 Manzil: {data['delivery_address']}\n"
     text += f"📱 Tel: {data['phone']}\n"
     text += f"💳 To'lov: {data['payment_name']}"
@@ -172,7 +185,20 @@ async def checkout_payment(call: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(Checkout.confirm, F.data == "order_confirm")
 async def checkout_confirm(call: CallbackQuery, state: FSMContext, bot: Bot) -> None:
+    """
+    TUZATILGAN: barcha order ma'lumotlari session ichida o'qib olib,
+    o'zgaruvchilarga saqlanadi (DetachedInstanceError oldini olish uchun)
+    """
     data = await state.get_data()
+
+    # Session-dan tashqarida ishlatish uchun saqlanadigan o'zgaruvchilar
+    order_id = None
+    order_total = 0.0
+    order_profit = 0.0
+    order_phone = ""
+    order_address = ""
+    user_full_name = ""
+    items_text = ""
 
     async with get_session() as session:
         user = await get_user_by_tg_id(session, call.from_user.id)
@@ -181,7 +207,7 @@ async def checkout_confirm(call: CallbackQuery, state: FSMContext, bot: Bot) -> 
             return
 
         method = PaymentMethod(data.get("payment_method", "naqd"))
-        order = await create_order_from_cart(
+        new_order = await create_order_from_cart(
             session,
             user_id=user.id,
             delivery_address=data["delivery_address"],
@@ -189,38 +215,62 @@ async def checkout_confirm(call: CallbackQuery, state: FSMContext, bot: Bot) -> 
             payment_method=method,
         )
 
+        if new_order:
+            # Items ni eager-load qilib qayta o'qib olamiz
+            order_full = await get_order(session, new_order.id)
+
+            order_id = order_full.id
+            order_total = order_full.total_amount
+            order_profit = order_full.total_profit
+            order_phone = order_full.phone or "—"
+            order_address = order_full.delivery_address or "—"
+            user_full_name = user.full_name
+
+            # Items matnini SESSION ICHIDA quramiz
+            lines = []
+            for item in order_full.items:
+                lines.append(
+                    f"  • {item.product_name} × {item.quantity:g} "
+                    f"= {fmt_money(item.total)}"
+                )
+            items_text = "\n".join(lines)
+
     await state.clear()
 
-    if not order:
-        await call.message.edit_text("❌ Buyurtma yaratilmadi. Savatingizni tekshiring.")
+    if order_id is None:
+        await call.message.edit_text(
+            "❌ Buyurtma yaratilmadi. Savatingizni tekshiring."
+        )
         await call.answer()
         return
 
-    # Mijozga
+    # ─── Mijozga ─────────────────────────────────────────
     success_text = (
         f"✅ <b>Buyurtmangiz qabul qilindi!</b>\n\n"
-        f"📋 Buyurtma raqami: <b>#{order.id}</b>\n"
-        f"💰 Jami: <b>{fmt_money(order.total_amount)}</b>\n"
+        f"📋 Buyurtma raqami: <b>#{order_id}</b>\n"
+        f"💰 Jami: <b>{fmt_money(order_total)}</b>\n"
         f"📦 Status: 🆕 Yangi\n\n"
         f"📞 Tez orada operator siz bilan bog'lanadi!"
     )
     await call.message.edit_text(success_text)
-    await call.message.answer("Asosiy menyu 👇", reply_markup=customer_main_kb())
+    await call.message.answer(
+        "Asosiy menyu 👇",
+        reply_markup=customer_main_kb(),
+    )
     await call.answer("✅ Buyurtma qabul qilindi!", show_alert=True)
 
-    # Adminlarga xabar
+    # ─── Adminlarga xabar ────────────────────────────────
     admin_text = (
-        f"🔔 <b>YANGI BUYURTMA #{order.id}</b>\n\n"
-        f"👤 Mijoz: {user.full_name}\n"
-        f"📱 Tel: {order.phone}\n"
-        f"📍 Manzil: {order.delivery_address}\n"
-        f"💳 To'lov: {data['payment_name']}\n\n"
+        f"🔔 <b>YANGI BUYURTMA #{order_id}</b>\n\n"
+        f"👤 Mijoz: {user_full_name}\n"
+        f"📱 Tel: {order_phone}\n"
+        f"📍 Manzil: {order_address}\n"
+        f"💳 To'lov: {data.get('payment_name', '—')}\n\n"
         f"📦 <b>Mahsulotlar:</b>\n"
+        f"{items_text}\n\n"
+        f"💰 <b>Jami: {fmt_money(order_total)}</b>\n"
+        f"📈 Sof foyda: {fmt_money(order_profit)}"
     )
-    for item in order.items:
-        admin_text += f"  • {item.product_name} × {item.quantity:g} = {fmt_money(item.total)}\n"
-    admin_text += f"\n💰 <b>Jami: {fmt_money(order.total_amount)}</b>\n"
-    admin_text += f"📈 Sof foyda: {fmt_money(order.total_profit)}"
 
     for admin_id in settings.admin_ids:
         try:
@@ -236,7 +286,10 @@ async def checkout_cancel_cb(call: CallbackQuery, state: FSMContext) -> None:
         await call.message.delete()
     except Exception:
         pass
-    await call.message.answer("❌ Bekor qilindi.", reply_markup=customer_main_kb())
+    await call.message.answer(
+        "❌ Bekor qilindi.",
+        reply_markup=customer_main_kb(),
+    )
     await call.answer()
 
 
@@ -249,22 +302,27 @@ async def my_orders(message: Message) -> None:
         if not user:
             await message.answer("❌ Avval /start bosing")
             return
+
         orders = await get_user_orders(session, user.id, limit=10)
 
-    if not orders:
+        # Matnni session ichida yig'amiz
+        if not orders:
+            text = None
+        else:
+            text = "📦 <b>Sizning buyurtmalaringiz:</b>\n\n"
+            for o in orders:
+                text += (
+                    f"{status_emoji(o.status.value)} <b>Buyurtma #{o.id}</b>\n"
+                    f"   📅 {fmt_datetime(o.created_at)}\n"
+                    f"   💰 {fmt_money(o.total_amount)}\n"
+                    f"   📊 Status: <b>{o.status.value.capitalize()}</b>\n\n"
+                )
+
+    if text is None:
         await message.answer(
             "📦 Sizda hali buyurtmalar yo'q.",
             reply_markup=customer_main_kb(),
         )
         return
-
-    text = "📦 <b>Sizning buyurtmalaringiz:</b>\n\n"
-    for o in orders:
-        text += (
-            f"{status_emoji(o.status.value)} <b>Buyurtma #{o.id}</b>\n"
-            f"   📅 {fmt_datetime(o.created_at)}\n"
-            f"   💰 {fmt_money(o.total_amount)}\n"
-            f"   📊 Status: <b>{o.status.value.capitalize()}</b>\n\n"
-        )
 
     await message.answer(text, reply_markup=customer_main_kb())
