@@ -1,0 +1,40 @@
+# Sirli ma'lumotlar
+.env
+
+# Bazalar
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+ENV/
+
+# Loglar
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Eksport fayllar
+exports/
+*.xlsx
+*.png
+!docs/**/*.png
+
+# pyc bilan distribution
+build/
+dist/
+*.egg-info/
