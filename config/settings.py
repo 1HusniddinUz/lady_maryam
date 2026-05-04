@@ -1,5 +1,5 @@
 """
-Bot konfiguratsiyasi - .env fayldan o'qiladi
+Bot konfiguratsiyasi - .env fayldan yoki env variable'lardan o'qiladi
 """
 
 import os
@@ -15,10 +15,11 @@ class Settings:
     bot_token: str
     admin_ids: List[int]
     db_path: str = "erp.db"
-    old_db_path: str = "savdo.db"  # Eski bazadan ko'chirish uchun
+    old_db_path: str = "savdo.db"
+    database_url: str = ""   # PostgreSQL URL (Render production)
 
     # Soliq sozlamalari (O'zbekiston)
-    default_tax_rate: float = 0.04   # Aylanma solig'i 4%
+    default_tax_rate: float = 0.04
     default_tax_name: str = "Aylanma solig'i"
 
     # Kam qoldiq chegarasi
@@ -34,7 +35,6 @@ class Settings:
     shop_phone: str = "+998 XX XXX-XX-XX"
     shop_address: str = "Toshkent shahri"
 
-    # To'lov turlari
     payment_methods: List[str] = field(default_factory=lambda: [
         "Naqd pul",
         "Plastik karta",
@@ -43,7 +43,6 @@ class Settings:
 
 
 def _parse_admin_ids(raw: str) -> List[int]:
-    """ADMIN_IDS dan ID lar ro'yxatini ajratib olish"""
     if not raw:
         return []
     parts = [p.strip() for p in raw.replace(';', ',').split(',') if p.strip()]
@@ -74,6 +73,7 @@ def _load_settings() -> Settings:
         admin_ids=admin_ids,
         db_path=os.getenv("DB_PATH", "erp.db"),
         old_db_path=os.getenv("OLD_DB_PATH", "savdo.db"),
+        database_url=os.getenv("DATABASE_URL", ""),
         shop_name=os.getenv("SHOP_NAME", "@muhabbat0093"),
         shop_phone=os.getenv("SHOP_PHONE", "+998 XX XXX-XX-XX"),
         shop_address=os.getenv("SHOP_ADDRESS", "Toshkent shahri"),

@@ -1,5 +1,6 @@
 """
 SQLAlchemy async engine va session
+PostgreSQL (production) yoki SQLite (lokal) ni qo'llab-quvvatlaydi
 """
 
 import logging
@@ -20,9 +21,32 @@ from database.models import (
 )
 
 
+def _build_db_url() -> str:
+    """
+    Database URL ni qurish:
+    - DATABASE_URL env bor bo'lsa - PostgreSQL (Render production)
+    - Aks holda - SQLite (lokal sinov)
+    """
+    db_url = os.getenv("DATABASE_URL", "").strip()
+
+    if db_url:
+        # Render `postgres://` beradi, SQLAlchemy `postgresql+asyncpg://` kutadi
+        if db_url.startswith("postgres://"):
+            db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
+        elif db_url.startswith("postgresql://"):
+            db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        logging.info("🗄  Database: PostgreSQL (Render)")
+        return db_url
+
+    # Lokal SQLite
+    logging.info(f"🗄  Database: SQLite ({settings.db_path})")
+    return f"sqlite+aiosqlite:///{settings.db_path}"
+
+
 engine = create_async_engine(
-    f"sqlite+aiosqlite:///{settings.db_path}",
+    _build_db_url(),
     echo=False,
+    pool_pre_ping=True,
 )
 
 AsyncSessionLocal = async_sessionmaker(
@@ -32,7 +56,6 @@ AsyncSessionLocal = async_sessionmaker(
 
 @asynccontextmanager
 async def get_session() -> AsyncIterator[AsyncSession]:
-    """Session olish uchun context manager"""
     async with AsyncSessionLocal() as session:
         try:
             yield session
@@ -49,7 +72,6 @@ async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    # Adminlarni yaratish
     async with get_session() as session:
         for admin_id in settings.admin_ids:
             stmt = select(User).where(User.telegram_id == admin_id)
@@ -64,13 +86,11 @@ async def init_db() -> None:
                     role=UserRole.ADMIN,
                 ))
 
-        # Default kategoriyalar
         existing_cats = (await session.execute(select(Category))).scalars().all()
         if not existing_cats:
             for cat_name in ["Asosiy", "Yangi mahsulotlar", "Aksiya"]:
                 session.add(Category(name=cat_name))
 
-        # Default sozlamalar
         for key, value in [
             ("tax_rate", str(settings.default_tax_rate)),
             ("tax_name", settings.default_tax_name),
@@ -83,7 +103,13 @@ async def init_db() -> None:
 
 
 async def migrate_old_data() -> None:
-    """Eski savdo.db dan ma'lumotlarni ko'chirish"""
+    """
+    Eski savdo.db dan ko'chirish (faqat lokal SQLite uchun).
+    Production (PostgreSQL) da bu o'tkazib yuboriladi.
+    """
+    if os.getenv("DATABASE_URL"):
+        return
+
     if not os.path.exists(settings.old_db_path):
         return
 
@@ -93,7 +119,6 @@ async def migrate_old_data() -> None:
         old_conn = sqlite3.connect(settings.old_db_path)
         old_conn.row_factory = sqlite3.Row
 
-        # Eski mahsulotlarni o'qish
         try:
             old_products = old_conn.execute(
                 "SELECT name, cost_price, sell_price, stock FROM products"
@@ -112,30 +137,27 @@ async def migrate_old_data() -> None:
             return
 
         async with get_session() as session:
-            # Tekshirish: agar mahsulot allaqachon bor bo'lsa, ko'chirmaymiz
             existing_count = len(
                 (await session.execute(select(Product))).scalars().all()
             )
             if existing_count > 0:
-                logging.info("✅ Yangi bazada mahsulotlar mavjud, ko'chirish o'tkazib yuborildi")
+                logging.info("✅ Bazada mahsulotlar bor, ko'chirish o'tkazib yuborildi")
                 return
 
-            # Default kategoriya
             default_cat = (await session.execute(
                 select(Category).where(Category.name == "Asosiy")
             )).scalar_one_or_none()
 
             count = 0
             for row in old_products:
-                product = Product(
+                session.add(Product(
                     name=row['name'],
                     cost_price=row['cost_price'] or 0,
                     sale_price=row['sell_price'] or 0,
                     stock_quantity=row['stock'] or 0,
                     category_id=default_cat.id if default_cat else None,
                     is_active=True,
-                )
-                session.add(product)
+                ))
                 count += 1
 
             logging.info(f"✅ {count} ta mahsulot ko'chirildi")
