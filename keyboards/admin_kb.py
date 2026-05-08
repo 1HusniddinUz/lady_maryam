@@ -289,12 +289,68 @@ def tax_settings_kb() -> InlineKeyboardMarkup:
 
 # ─── TEZKOR SOTUV (admin) ─────────────────────────────────────────────
 
-def quick_sale_pick_product_kb(products: list[Product]) -> InlineKeyboardMarkup:
+QS_PER_PAGE = 8  # Tezkor sotuvda har sahifada nechta mahsulot
+
+
+def quick_sale_pick_product_kb(
+    products: list[Product],
+    page: int = 0,
+    search: str = "",
+) -> InlineKeyboardMarkup:
+    """
+    Tezkor sotuv uchun mahsulotlar ro'yxati — pagination + search bilan.
+
+    products: barcha mahsulotlar
+    page:     hozirgi sahifa (0-dan boshlanadi)
+    search:   qidiruv matni (bo'lsa, "Tozalash" tugmasi chiqadi)
+    """
     kb = InlineKeyboardBuilder()
-    for p in products:
+    total = len(products)
+
+    if total == 0:
+        kb.row(InlineKeyboardButton(text="❌ Bekor", callback_data="qs:cancel"))
+        return kb.as_markup()
+
+    total_pages = (total + QS_PER_PAGE - 1) // QS_PER_PAGE
+    page = max(0, min(page, total_pages - 1))
+    start = page * QS_PER_PAGE
+    page_products = products[start:start + QS_PER_PAGE]
+
+    # Mahsulotlar
+    for p in page_products:
+        if p.stock_quantity > 0:
+            stock_mark = f"({p.stock_quantity:g})"
+        else:
+            stock_mark = "❌"
+
+        name = p.name if len(p.name) <= 25 else p.name[:23] + "…"
+
         kb.row(InlineKeyboardButton(
-            text=f"{p.name} — {fmt_money(p.sale_price)} ({p.stock_quantity:g})",
+            text=f"{name} — {fmt_money(p.sale_price)} {stock_mark}",
             callback_data=f"qs:p:{p.id}",
         ))
+
+    # Pagination
+    if total_pages > 1:
+        nav = []
+        if page > 0:
+            nav.append(InlineKeyboardButton(text="⬅️", callback_data=f"qs:page:{page - 1}"))
+        nav.append(InlineKeyboardButton(
+            text=f"📄 {page + 1}/{total_pages}",
+            callback_data="qs:noop",
+        ))
+        if page < total_pages - 1:
+            nav.append(InlineKeyboardButton(text="➡️", callback_data=f"qs:page:{page + 1}"))
+        kb.row(*nav)
+
+    # Qidirish / Tozalash
+    if search:
+        kb.row(InlineKeyboardButton(
+            text=f"🔄 Tozalash («{search[:15]}»)",
+            callback_data="qs:clear_search",
+        ))
+    else:
+        kb.row(InlineKeyboardButton(text="🔍 Qidirish", callback_data="qs:search"))
+
     kb.row(InlineKeyboardButton(text="❌ Bekor", callback_data="qs:cancel"))
     return kb.as_markup()
