@@ -38,7 +38,7 @@ class EditProductField(StatesGroup):
 
 class StockOp(StatesGroup):
     quantity = State()
-    cost_price = State()
+    cost_price = State()  # faqat kirim uchun
     reason = State()
 
 
@@ -54,7 +54,7 @@ class Broadcast(StatesGroup):
 
 class QuickSale(StatesGroup):
     quantity = State()
-    custom_price = State()  # YANGI: admin qo'lda narx kiritadi
+    custom_price = State()  # Boshqa narx kiritish (chegirma yoki ko'tarish)
     buyer = State()
 
 
