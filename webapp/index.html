@@ -4,142 +4,154 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
 <meta name="theme-color" content="#F4EFE6" />
-<title>Lady Maryam — Atelier</title>
-
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<title>Lady Maryam — Atelier Bot</title>
 
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..600&family=Manrope:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 
-<!-- ABSOLUTE PATH + CACHE-BUST: muhim! relative path muammosini hal qiladi -->
-<link rel="stylesheet" href="/webapp/css/style.css?v=4.1" />
-
-<!-- Critical inline CSS — agar tashqi CSS ulanmasa ham, modal'lar yashirin qoladi -->
-<style>
-  body { margin: 0; font-family: system-ui, sans-serif; background: #F4EFE6; }
-  .sheet, .cart-drawer, .success-modal, .toast { position: fixed; inset: 0; visibility: hidden; pointer-events: none; opacity: 0; }
-  .sheet.open, .cart-drawer.open, .success-modal.open, .toast.show { visibility: visible; pointer-events: auto; opacity: 1; }
-  .grain { position: fixed; inset: 0; pointer-events: none; }
-  .hdr { position: fixed; top: 0; left: 0; right: 0; height: 60px; z-index: 100; background: rgba(255,253,250,0.85); display: flex; justify-content: space-between; align-items: center; padding: 0 18px; }
-  .app-content { padding-top: 60px; min-height: 100vh; }
-  .hdr-bubble { transform: scale(0); }
-</style>
+<link rel="stylesheet" href="style.css" />
 </head>
 
 <body>
+  <!-- Grain texture overlay -->
   <div class="grain"></div>
 
-  <header class="hdr">
-    <button id="logo-btn" class="hdr-mark" data-nav="home">
-      <span class="hdr-symbol">✦</span>
-      <span class="hdr-name" id="brand-name">Lady Maryam</span>
-    </button>
-    <div class="hdr-actions">
-      <button class="hdr-icon" data-nav="wishlist" aria-label="Sevimlilar">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
-        </svg>
-        <span id="wishlist-count" class="hdr-bubble">0</span>
-      </button>
-      <button id="cart-btn" class="hdr-icon" aria-label="Savat">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M6 6h15l-2 11H8L6 6Z"/>
-          <path d="M6 6L5 3H2"/>
-          <circle cx="9" cy="21" r="1.2"/>
-          <circle cx="18" cy="21" r="1.2"/>
-        </svg>
-        <span id="cart-count" class="hdr-bubble">0</span>
-      </button>
-    </div>
-  </header>
+  <!-- Main phone-style frame -->
+  <div class="phone-frame">
 
-  <main id="app-content" class="app-content"></main>
-
-  <div id="cart-drawer" class="cart-drawer" aria-hidden="true">
-    <div class="cart-backdrop"></div>
-    <aside class="cart-panel">
-      <header class="cart-head">
-        <h3>Savatingiz</h3>
-        <button id="cart-close" aria-label="Yopish">✕</button>
-      </header>
-      <div id="cart-items" class="cart-items"></div>
-      <div class="cart-empty" id="cart-empty">
-        <div class="cart-empty-icon">∅</div>
-        <p>Savatingiz hali bo'sh</p>
+    <!-- ═══ HEADER ═══ -->
+    <header class="hdr">
+      <div class="hdr-avatar" aria-label="Lady Maryam">
+        <span>M</span>
       </div>
-      <footer id="cart-footer" class="cart-footer" hidden>
-        <div class="cart-total">
-          <span>Jami</span>
-          <strong id="cart-total-amount">0 so'm</strong>
+      <div class="hdr-info">
+        <div class="hdr-name">
+          <span class="hdr-symbol">✦</span>
+          <span class="hdr-name-text">Lady Maryam</span>
         </div>
-        <button id="checkout-btn" class="btn-primary"><span>Buyurtma berish</span></button>
-      </footer>
-    </aside>
-  </div>
-
-  <div id="checkout-sheet" class="sheet" aria-hidden="true">
-    <div class="sheet-backdrop"></div>
-    <div class="sheet-panel">
-      <div class="sheet-handle"></div>
-      <header class="sheet-head">
-        <button id="checkout-close" class="sheet-back" aria-label="Orqaga">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M10 12L6 8l4-4"/>
+        <div class="hdr-status">
+          <span class="status-dot"></span>
+          onlayn · atelier
+        </div>
+      </div>
+      <div class="hdr-actions">
+        <button class="hdr-btn" id="btn-wishlist" aria-label="Sevimlilar">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+          </svg>
+          <span class="hdr-badge" id="wishlist-badge" hidden>0</span>
+        </button>
+        <button class="hdr-btn" id="btn-cart" aria-label="Savatcha">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 6h15l-2 11H8L6 6Z"/>
+            <path d="M6 6L5 3H2"/>
+            <circle cx="9" cy="21" r="1.2"/>
+            <circle cx="18" cy="21" r="1.2"/>
+          </svg>
+          <span class="hdr-badge" id="cart-badge" hidden>0</span>
+        </button>
+        <button class="hdr-btn" id="btn-clear" aria-label="Tozalash">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
           </svg>
         </button>
-        <h3>Buyurtma rasmiylashtirish</h3>
-      </header>
-      <div class="sheet-body">
-        <div class="form-group">
-          <label class="form-label"><span class="form-icon">📍</span>Yetkazib berish manzili</label>
-          <textarea id="f-address" class="form-textarea" rows="3" placeholder="Shahar, ko'cha, uy va xonadon raqami"></textarea>
-        </div>
-        <div class="form-group">
-          <label class="form-label"><span class="form-icon">📱</span>Telefon raqamingiz</label>
-          <input type="tel" id="f-phone" class="form-input" placeholder="+998 90 123 45 67" />
-        </div>
-        <div class="form-group">
-          <label class="form-label"><span class="form-icon">💳</span>To'lov turi</label>
-          <div class="payment-grid">
-            <button class="pay-card active" data-pay="cash"><span class="pay-emoji">💵</span><span class="pay-label">Naqd</span></button>
-            <button class="pay-card" data-pay="card"><span class="pay-emoji">💳</span><span class="pay-label">Karta</span></button>
-            <button class="pay-card" data-pay="online"><span class="pay-emoji">📱</span><span class="pay-label">Click</span></button>
-          </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label"><span class="form-icon">📝</span>Izoh <span class="form-optional">(ixtiyoriy)</span></label>
-          <textarea id="f-notes" class="form-textarea" rows="2" placeholder="Eslatma..."></textarea>
-        </div>
-        <div class="checkout-summary">
-          <div class="summary-row"><span>Mahsulotlar</span><strong id="summary-count">—</strong></div>
-          <div class="summary-row summary-total"><span>Jami summa</span><strong id="summary-total">— so'm</strong></div>
-        </div>
       </div>
-      <footer class="sheet-foot">
-        <button id="submit-order" class="btn-primary"><span>Buyurtmani tasdiqlash</span></button>
-      </footer>
-    </div>
-  </div>
+    </header>
 
-  <div id="success-modal" class="success-modal" aria-hidden="true">
-    <div class="success-content">
-      <div class="success-circle">
-        <svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M8 16l5 5 11-11"/>
+    <!-- ═══ CHAT AREA ═══ -->
+    <main class="chat-area" id="chat-area">
+      <!-- Messages will be appended here by JS -->
+    </main>
+
+    <!-- ═══ INPUT BAR ═══ -->
+    <footer class="input-bar">
+      <input
+        type="text"
+        class="input-field"
+        id="input-field"
+        placeholder="Xabar yozing…"
+        autocomplete="off"
+      />
+      <button class="send-btn" id="btn-send" aria-label="Yuborish">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 2 11 13"/>
+          <path d="M22 2 15 22l-4-9-9-4Z"/>
         </svg>
+      </button>
+    </footer>
+
+    <!-- ═══ CART MODAL ═══ -->
+    <div class="modal-overlay" id="modal-cart" hidden>
+      <div class="modal-backdrop" data-close="cart"></div>
+      <div class="modal-panel">
+        <div class="modal-handle"></div>
+        <div class="modal-head">
+          <h2 class="modal-title">Savatcha<em> .</em></h2>
+          <button class="modal-close" data-close="cart" aria-label="Yopish">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <path d="M18 6 6 18M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body" id="cart-body">
+          <!-- Cart items injected here -->
+        </div>
+        <div class="modal-foot" id="cart-foot" hidden>
+          <div class="cart-total">
+            <span class="cart-total-label">Jami</span>
+            <strong class="cart-total-val" id="cart-total">0 so'm</strong>
+          </div>
+          <button class="btn-primary" id="btn-checkout">
+            <span>Buyurtma berish</span>
+          </button>
+        </div>
       </div>
-      <h2 class="success-title">Buyurtmangiz qabul qilindi</h2>
-      <p class="success-id">Raqam: <span id="success-order-id">#0</span></p>
-      <p class="success-text">Tez orada operator siz bilan bog'lanadi.</p>
-      <button id="success-close" class="btn-primary"><span>Yopish</span></button>
     </div>
+
+    <!-- ═══ ORDERS MODAL ═══ -->
+    <div class="modal-overlay" id="modal-orders" hidden>
+      <div class="modal-backdrop" data-close="orders"></div>
+      <div class="modal-panel">
+        <div class="modal-handle"></div>
+        <div class="modal-head">
+          <h2 class="modal-title">Buyurtmalarim</h2>
+          <button class="modal-close" data-close="orders" aria-label="Yopish">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <path d="M18 6 6 18M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body" id="orders-body">
+          <!-- Orders injected here -->
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ WISHLIST MODAL ═══ -->
+    <div class="modal-overlay" id="modal-wishlist" hidden>
+      <div class="modal-backdrop" data-close="wishlist"></div>
+      <div class="modal-panel">
+        <div class="modal-handle"></div>
+        <div class="modal-head">
+          <h2 class="modal-title"><em>Sevimlilar</em></h2>
+          <button class="modal-close" data-close="wishlist" aria-label="Yopish">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <path d="M18 6 6 18M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body" id="wishlist-body">
+          <!-- Wishlist injected here -->
+        </div>
+      </div>
+    </div>
+
   </div>
 
-  <div id="toast" class="toast" aria-live="polite"></div>
+  <!-- Toast notifications -->
+  <div class="toast" id="toast" aria-live="polite"></div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r158/three.min.js"></script>
-  <!-- ABSOLUTE PATH + CACHE-BUST -->
-  <script src="/webapp/js/main.js?v=4.1"></script>
+  <script src="main.js"></script>
 </body>
 </html>
