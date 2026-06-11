@@ -3,14 +3,16 @@ WebApp API endpoint'lari (v4) — wishlist, my orders, search qo'shildi
 """
 
 import logging
+from datetime import date
 from aiohttp import web
+from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest
 from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload
 
 from config.settings import settings
 from database.engine import get_session
 from database.models import (
-    Product, Category, OrderStatus, PaymentMethod, WishlistItem
+    Product, Category, OrderStatus, PaymentMethod, WishlistItem, DebtStatus
 )
 from services.product_service import (
     get_all_products, get_product, get_all_categories, search_products
@@ -21,7 +23,11 @@ from services.cart_service import (
 from services.order_service import (
     create_order_from_cart, get_order, get_user_orders
 )
-from services.user_service import get_or_create_user
+from services.user_service import get_or_create_user, is_admin
+from services.debt_service import (
+    create_debt, get_debt, list_debts, add_payment, update_debt, delete_debt,
+    get_debt_stats, generate_reminder_text, log_reminder, outstanding,
+)
 from api.auth import get_telegram_id_from_request, verify_telegram_init_data
 
 
@@ -49,6 +55,49 @@ async def _get_user_or_unauthorized(request):
             username=user_data.get("username"),
         )
         return user.id, full_name, None
+
+
+async def _get_admin_or_unauthorized(request):
+    """Faqat adminlar uchun. Returns (tg_id, None) yoki (None, error_response)."""
+    tg_id = get_telegram_id_from_request(request)
+    if not tg_id:
+        return None, web.json_response({"error": "Unauthorized"}, status=401)
+    async with get_session() as session:
+        if not await is_admin(session, tg_id):
+            return None, web.json_response({"error": "Forbidden"}, status=403)
+    return tg_id, None
+
+
+def _parse_iso_date(s):
+    if not s:
+        return None
+    try:
+        return date.fromisoformat(str(s)[:10])
+    except (ValueError, TypeError):
+        return None
+
+
+def _debt_to_dict(debt, today=None) -> dict:
+    today = today or date.today()
+    days = (debt.due_date - today).days if debt.due_date else None
+    overdue = debt.status == DebtStatus.ACTIVE and debt.due_date and debt.due_date < today
+    return {
+        "id": debt.id,
+        "customer_name": debt.customer_name,
+        "customer_phone": debt.customer_phone,
+        "customer_telegram": debt.customer_telegram,
+        "items": debt.items or [],
+        "total_amount": debt.total_amount,
+        "paid_amount": debt.paid_amount,
+        "outstanding": outstanding(debt),
+        "taken_date": debt.taken_date.isoformat() if debt.taken_date else None,
+        "due_date": debt.due_date.isoformat() if debt.due_date else None,
+        "days_until_due": days,
+        "is_overdue": bool(overdue),
+        "notes": debt.notes,
+        "status": debt.status.value,
+        "has_chat": debt.customer_chat_id is not None,
+    }
 
 
 def _product_to_dict(p, full=False) -> dict:
@@ -464,6 +513,171 @@ async def api_order_create(request: web.Request):
     })
 
 
+# ─── ME (admin tekshiruvi) ────────────────────────────────────────────
+
+async def api_me(request: web.Request):
+    tg_id = get_telegram_id_from_request(request)
+    if not tg_id:
+        return web.json_response({"is_admin": False})
+    async with get_session() as session:
+        admin = await is_admin(session, tg_id)
+    return web.json_response({"is_admin": bool(admin)})
+
+
+# ─── ADMIN: QARZLAR ───────────────────────────────────────────────────
+
+async def api_admin_debts(request: web.Request):
+    _, err = await _get_admin_or_unauthorized(request)
+    if err:
+        return err
+    status_filter = request.query.get("status", "all")
+    search = request.query.get("search") or None
+    async with get_session() as session:
+        debts = await list_debts(session, status_filter, search)
+        stats = await get_debt_stats(session)
+        result = [_debt_to_dict(d) for d in debts]
+    return web.json_response({"debts": result, "stats": stats})
+
+
+async def api_admin_debt_create(request: web.Request):
+    _, err = await _get_admin_or_unauthorized(request)
+    if err:
+        return err
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    customer = data.get("customer") or {}
+    name = (customer.get("name") or data.get("customer_name") or "").strip()
+    phone = (customer.get("phone") or data.get("customer_phone") or "").strip()
+    tg = customer.get("telegram") or data.get("customer_telegram")
+    items = data.get("items") or []
+    due = _parse_iso_date(data.get("due_date"))
+    taken = _parse_iso_date(data.get("taken_date"))
+
+    total = data.get("total_amount")
+    if total is None:
+        total = sum((it.get("qty", 1) or 0) * (it.get("price", 0) or 0) for it in items)
+
+    if not name or not phone or not due or not total or float(total) <= 0:
+        return web.json_response(
+            {"error": "name, phone, due_date va total_amount majburiy"}, status=400
+        )
+
+    async with get_session() as session:
+        debt = await create_debt(
+            session,
+            customer_name=name,
+            customer_phone=phone,
+            customer_telegram=tg,
+            items=items,
+            total_amount=float(total),
+            taken_date=taken,
+            due_date=due,
+            notes=(data.get("notes") or None),
+        )
+        result = _debt_to_dict(debt)
+    return web.json_response({"success": True, "debt": result})
+
+
+async def api_admin_debt_update(request: web.Request):
+    _, err = await _get_admin_or_unauthorized(request)
+    if err:
+        return err
+    debt_id = int(request.match_info["id"])
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    fields = {}
+    for k in ("customer_name", "customer_phone", "customer_telegram",
+              "notes", "total_amount", "paid_amount", "items"):
+        if k in data:
+            fields[k] = data[k]
+    if "due_date" in data:
+        fields["due_date"] = _parse_iso_date(data["due_date"])
+    if "status" in data:
+        try:
+            fields["status"] = DebtStatus(data["status"])
+        except ValueError:
+            pass
+
+    async with get_session() as session:
+        debt = await update_debt(session, debt_id, **fields)
+        if not debt:
+            return web.json_response({"error": "Topilmadi"}, status=404)
+        result = _debt_to_dict(debt)
+    return web.json_response({"success": True, "debt": result})
+
+
+async def api_admin_debt_delete(request: web.Request):
+    _, err = await _get_admin_or_unauthorized(request)
+    if err:
+        return err
+    debt_id = int(request.match_info["id"])
+    async with get_session() as session:
+        ok = await delete_debt(session, debt_id)
+    if not ok:
+        return web.json_response({"error": "Topilmadi"}, status=404)
+    return web.json_response({"success": True})
+
+
+async def api_admin_debt_payment(request: web.Request):
+    _, err = await _get_admin_or_unauthorized(request)
+    if err:
+        return err
+    debt_id = int(request.match_info["id"])
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+    amount = float(data.get("amount", 0) or 0)
+    if amount <= 0:
+        return web.json_response({"error": "Summa noto'g'ri"}, status=400)
+    async with get_session() as session:
+        debt = await add_payment(session, debt_id, amount)
+        if not debt:
+            return web.json_response({"error": "Topilmadi"}, status=404)
+        result = _debt_to_dict(debt)
+    return web.json_response({"success": True, "debt": result})
+
+
+async def api_admin_debt_reminder(request: web.Request):
+    _, err = await _get_admin_or_unauthorized(request)
+    if err:
+        return err
+    debt_id = int(request.match_info["id"])
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    tone = data.get("tone", "polite")
+    bot = request.app.get("bot")
+
+    async with get_session() as session:
+        debt = await get_debt(session, debt_id)
+        if not debt:
+            return web.json_response({"error": "Topilmadi"}, status=404)
+        text = generate_reminder_text(debt, tone)
+        chat_id = debt.customer_chat_id
+
+        if chat_id and bot:
+            try:
+                await bot.send_message(chat_id, text)
+                await log_reminder(session, debt_id, tone, text, "sent")
+                delivery = "sent"
+            except (TelegramForbiddenError, TelegramBadRequest):
+                await log_reminder(session, debt_id, tone, text, "failed")
+                delivery = "failed"
+        else:
+            await log_reminder(session, debt_id, tone, text, "manual")
+            delivery = "manual"
+
+    return web.json_response({"success": True, "delivery_status": delivery, "message": text})
+
+
 # ─── ROUTES ──────────────────────────────────────────────────────────
 
 def register_api_routes(app: web.Application) -> None:
@@ -484,3 +698,12 @@ def register_api_routes(app: web.Application) -> None:
 
     app.router.add_get("/api/orders/my", api_my_orders)
     app.router.add_post("/api/orders", api_order_create)
+
+    # Admin — me + qarzlar
+    app.router.add_get("/api/me", api_me)
+    app.router.add_get("/api/admin/debts", api_admin_debts)
+    app.router.add_post("/api/admin/debts", api_admin_debt_create)
+    app.router.add_patch("/api/admin/debts/{id}", api_admin_debt_update)
+    app.router.add_delete("/api/admin/debts/{id}", api_admin_debt_delete)
+    app.router.add_post("/api/admin/debts/{id}/payment", api_admin_debt_payment)
+    app.router.add_post("/api/admin/debts/{id}/reminder", api_admin_debt_reminder)

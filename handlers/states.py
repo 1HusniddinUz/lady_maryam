@@ -64,3 +64,18 @@ class AddCategory(StatesGroup):
 
 class CustomAddress(StatesGroup):
     address = State()
+
+
+class AddDebt(StatesGroup):
+    customer_name = State()
+    customer_phone = State()
+    customer_telegram = State()
+    items = State()
+    total = State()
+    due_date = State()
+    notes = State()
+    confirm = State()
+
+
+class DebtPayment(StatesGroup):
+    amount = State()

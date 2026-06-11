@@ -1,4 +1,9 @@
 
+# Maxfiy ma'lumotlar (HECH QACHON commit qilinmaydi)
+.env
+.env.*
+!.env.example
+
 # Bazalar
 *.db
 *.db-journal

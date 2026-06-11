@@ -4,13 +4,14 @@ Umumiy handlerlar - /start, /help, mode switch
 
 import logging
 from aiogram import Router, F
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import Command, CommandStart, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, Contact, ReplyKeyboardRemove
 
 from config.settings import settings
 from database.engine import get_session
 from services.user_service import get_or_create_user, is_admin, update_phone
+from services.debt_service import bind_customer_chat
 from keyboards.customer_kb import customer_main_kb, share_phone_kb
 from keyboards.admin_kb import admin_main_kb
 from handlers.states import CustomerRegister
@@ -19,11 +20,23 @@ from handlers.states import CustomerRegister
 router = Router(name="common")
 
 
+def _parse_debt_payload(args: str | None) -> int | None:
+    """'debt_<id>' deep-link payload'idan qarz ID'sini ajratadi."""
+    if not args or not args.startswith("debt_"):
+        return None
+    try:
+        return int(args.split("_")[1])
+    except (ValueError, IndexError):
+        return None
+
+
 @router.message(CommandStart())
-async def cmd_start(message: Message, state: FSMContext) -> None:
+async def cmd_start(message: Message, state: FSMContext, command: CommandObject) -> None:
     await state.clear()
     if not message.from_user:
         return
+
+    debt_id = _parse_debt_payload(command.args)
 
     async with get_session() as session:
         user = await get_or_create_user(
@@ -36,6 +49,16 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
         if user.is_blocked:
             await message.answer("🚫 Sizning hisobingiz bloklangan.")
             return
+
+        # Deep-link orqali kelgan bo'lsa — qarz eslatmalari uchun chat_id'ni bog'laymiz
+        if debt_id is not None:
+            bound = await bind_customer_chat(
+                session, debt_id, message.from_user.id, user_id=user.id
+            )
+            if bound:
+                await message.answer(
+                    "✅ Rahmat! Qarz bo'yicha eslatmalar endi shu chatga keladi."
+                )
 
         admin_flag = await is_admin(session, message.from_user.id)
 

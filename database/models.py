@@ -2,13 +2,13 @@
 Ma'lumotlar bazasi modellari (SQLAlchemy ORM)
 """
 
-from datetime import datetime
+from datetime import datetime, date
 from enum import Enum as PyEnum
 from typing import Optional, List
 
 from sqlalchemy import (
-    BigInteger, Boolean, DateTime, Float, ForeignKey, Integer,
-    String, Text, Enum as SAEnum, UniqueConstraint
+    BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Integer,
+    JSON, String, Text, Enum as SAEnum, UniqueConstraint
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -44,6 +44,11 @@ class PaymentMethod(str, PyEnum):
     CASH = "naqd"
     CARD = "karta"
     ONLINE = "online"
+
+
+class DebtStatus(str, PyEnum):
+    ACTIVE = "faol"
+    PAID = "to'langan"
 
 
 # ─── USER ─────────────────────────────────────────────────────────────
@@ -234,3 +239,52 @@ class AppSetting(Base):
     key: Mapped[str] = mapped_column(String(100), primary_key=True)
     value: Mapped[str] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ─── DEBT (QARZLAR) ───────────────────────────────────────────────────
+
+class Debt(Base):
+    __tablename__ = "debts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Agar mijoz bot foydalanuvchisi bo'lsa - bog'lanadi (eslatma uchun)
+    customer_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    customer_chat_id: Mapped[Optional[int]] = mapped_column(BigInteger)  # to'g'ridan eslatma uchun
+
+    customer_name: Mapped[str] = mapped_column(String(255))
+    customer_phone: Mapped[str] = mapped_column(String(20))
+    customer_telegram: Mapped[Optional[str]] = mapped_column(String(64))  # username, '@' siz
+
+    items: Mapped[list] = mapped_column(JSON, default=list)  # [{name, qty, price}]
+    total_amount: Mapped[float] = mapped_column(Float, default=0.0)
+    paid_amount: Mapped[float] = mapped_column(Float, default=0.0)
+
+    taken_date: Mapped[date] = mapped_column(Date, default=date.today)
+    due_date: Mapped[date] = mapped_column(Date)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    status: Mapped[DebtStatus] = mapped_column(SAEnum(DebtStatus), default=DebtStatus.ACTIVE)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    reminders: Mapped[List["DebtReminder"]] = relationship(
+        back_populates="debt", cascade="all, delete-orphan"
+    )
+
+    @property
+    def outstanding(self) -> float:
+        return max(0.0, self.total_amount - self.paid_amount)
+
+
+class DebtReminder(Base):
+    __tablename__ = "debt_reminders"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    debt_id: Mapped[int] = mapped_column(ForeignKey("debts.id"))
+    sent_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    tone: Mapped[Optional[str]] = mapped_column(String(20))  # polite | urgent | friendly
+    message: Mapped[str] = mapped_column(Text)
+    delivery_status: Mapped[Optional[str]] = mapped_column(String(20))  # sent | failed | manual
+    channel: Mapped[str] = mapped_column(String(20), default="telegram")
+
+    debt: Mapped["Debt"] = relationship(back_populates="reminders")

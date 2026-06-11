@@ -19,6 +19,7 @@ from config.settings import settings
 from database.engine import init_db, migrate_old_data
 from handlers import register_all_handlers
 from utils.logger import setup_logging
+from utils.scheduler import reminder_scheduler_task
 from api import register_api_routes
 
 
@@ -195,6 +196,8 @@ async def main() -> None:
 
     # 💓 Keep-alive task'ni background'da ishga tushiramiz
     keep_alive = asyncio.create_task(keep_alive_task())
+    # ⏰ Qarz eslatmalari scheduler'i (har kuni 09:00 Asia/Tashkent)
+    debt_scheduler = asyncio.create_task(reminder_scheduler_task(bot))
 
     try:
         await bot.delete_webhook(drop_pending_updates=True)
@@ -204,12 +207,13 @@ async def main() -> None:
             allowed_updates=dp.resolve_used_update_types(),
         )
     finally:
-        # Keep-alive'ni to'xtatamiz
-        keep_alive.cancel()
-        try:
-            await keep_alive
-        except asyncio.CancelledError:
-            pass
+        # Background tasklarni to'xtatamiz
+        for task in (keep_alive, debt_scheduler):
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
         await runner.cleanup()
         await bot.session.close()
 

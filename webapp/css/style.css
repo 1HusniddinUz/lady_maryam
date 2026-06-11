@@ -950,6 +950,11 @@ input, textarea { font-family: inherit; }
 .status-yakunlangan    { background: rgba(94, 86, 76, 0.15);   color: #5E564C; }
 .status-bekor          { background: rgba(168, 76, 76, 0.15);  color: #A84C4C; }
 
+/* Qarz statuslari */
+.status-faol           { background: rgba(216, 148, 115, 0.20); color: #B85A2C; }
+.status-overdue        { background: rgba(168, 76, 76, 0.15);   color: #A84C4C; }
+.status-tolangan       { background: rgba(46, 124, 88, 0.15);   color: #2E7C58; }
+
 .order-items-mini {
   display: flex; gap: 6px;
   margin-bottom: 14px;
@@ -1446,3 +1451,127 @@ input, textarea { font-family: inherit; }
     transition-duration: 0.01ms !important;
   }
 }
+
+
+/* ════════════════════════════════════════════════════════════════
+   QARZLAR (admin)
+   ──────────────────────────────────────────────────────────────── */
+.nav-tile-admin { border: 1px solid var(--accent-soft); }
+
+.debt-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.debt-stat {
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.debt-stat-label {
+  font-size: 11px;
+  color: var(--ink-3);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.debt-stat strong {
+  font-family: var(--display);
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--ink);
+}
+.debt-stat-red { color: #A84C4C !important; }
+
+.debt-card { cursor: pointer; }
+.debt-amounts {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 6px 0 12px;
+}
+.debt-out { font-size: 14px; color: var(--ink-2); }
+.debt-out strong { color: var(--accent); font-weight: 700; }
+.debt-total { font-size: 12px; color: var(--ink-3); }
+
+/* Detal modal */
+.debt-modal {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.debt-modal-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(27, 23, 20, 0.45);
+  backdrop-filter: blur(4px);
+}
+.debt-modal-panel {
+  position: relative;
+  width: 100%; max-width: 480px;
+  max-height: 88vh; overflow-y: auto;
+  background: var(--paper);
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
+  padding: 12px 22px 32px;
+  box-shadow: var(--shadow-4);
+  animation: sheetUp 0.35s var(--ease-out);
+}
+@keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.debt-modal-close {
+  position: absolute; top: 16px; right: 18px;
+  width: 32px; height: 32px; border-radius: 50%;
+  background: var(--bg-2); color: var(--ink-2);
+  font-size: 15px; border: none; cursor: pointer;
+}
+.debt-modal-head {
+  display: flex; align-items: center; gap: 10px;
+  margin: 8px 0 18px; padding-right: 40px;
+}
+.debt-modal-head h3 {
+  font-family: var(--display); font-weight: 400;
+  font-size: 24px; letter-spacing: -0.01em;
+}
+.debt-info-row {
+  display: flex; justify-content: space-between; gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 14px; color: var(--ink-2);
+}
+.debt-info-row span:last-child { color: var(--ink); font-weight: 500; text-align: right; }
+.debt-info-strong span:last-child { color: var(--accent); font-weight: 700; }
+.debt-items {
+  background: var(--bg-2);
+  border-radius: var(--r-sm);
+  padding: 10px 12px; margin: 8px 0;
+}
+.debt-item-row {
+  display: flex; justify-content: space-between; gap: 8px;
+  font-size: 13px; color: var(--ink-2); padding: 3px 0;
+}
+.debt-warn {
+  background: rgba(168, 76, 76, 0.10);
+  color: #A84C4C;
+  border-radius: var(--r-sm);
+  padding: 10px 12px; margin: 12px 0;
+  font-size: 12.5px; line-height: 1.4;
+}
+.debt-action-block { margin-top: 18px; }
+.debt-action-block .form-label {
+  display: block; margin-bottom: 8px;
+  font-size: 13px; font-weight: 600; color: var(--ink-2);
+}
+.debt-pay-row { display: flex; gap: 8px; }
+.debt-pay-row .form-input { flex: 1; }
+.debt-pay-row .btn-primary { width: auto; padding: 0 20px; flex-shrink: 0; }
+.debt-tone-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.debt-tone-row .filter-chip { cursor: pointer; }
+.debt-del-btn {
+  width: 100%; margin-top: 24px;
+  padding: 12px; border-radius: var(--r-md);
+  background: transparent; border: 1px solid rgba(168, 76, 76, 0.3);
+  color: #A84C4C; font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: all 0.25s var(--ease-out);
+}
+.debt-del-btn:hover { background: rgba(168, 76, 76, 0.08); }

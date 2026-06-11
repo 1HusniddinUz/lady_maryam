@@ -34,6 +34,15 @@ const API = {
     if (!res.ok) throw new Error(data.error || `API ${path}: ${res.status}`);
     return data;
   },
+  async del(path) {
+    const res = await fetch(path, {
+      method: 'DELETE',
+      headers: { 'X-Telegram-Init-Data': initData },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `API ${path}: ${res.status}`);
+    return data;
+  },
 };
 
 // ─── Helpers ───────────────────────────────────────────────────────
@@ -74,6 +83,7 @@ const state = {
   cart: { items: [], total: 0, count: 0 },
   wishlist: new Set(),
   shop: { name: 'Lady Maryam', phone: '', address: '' },
+  isAdmin: false,
   currentView: null,
   currentParams: null,
   history: [],
@@ -121,6 +131,7 @@ async function navigate(view, params = null, options = {}) {
       case 'product':  await renderProduct(viewEl, params?.id); break;
       case 'orders':   await renderOrders(viewEl); break;
       case 'wishlist': await renderWishlist(viewEl); break;
+      case 'qarzlar':  await renderQarzlar(viewEl); break;
       default: viewEl.innerHTML = '<div class="empty-state"><p>Sahifa topilmadi</p></div>';
     }
   } catch (err) {
@@ -248,6 +259,22 @@ async function renderHome(viewEl) {
       <p class="ftr-note">Shofirkon · Sof tikuv · Cheklanmagan e'tibor</p>
     </footer>
   `;
+
+  // Admin uchun — Qarzlar tile (faqat adminlarga ko'rinadi)
+  if (state.isAdmin) {
+    const tiles = viewEl.querySelector('.nav-tiles');
+    if (tiles) {
+      const tile = document.createElement('button');
+      tile.className = 'nav-tile nav-tile-admin';
+      tile.dataset.nav = 'qarzlar';
+      tile.innerHTML = `
+        <span class="nav-tile-icon">📒</span>
+        <span class="nav-tile-title">Qarzlar</span>
+        <span class="nav-tile-meta">Admin · qarz daftari</span>
+        <span class="nav-tile-arrow">→</span>`;
+      tiles.appendChild(tile);
+    }
+  }
 
   initHero();
   loadFeatured();
@@ -672,6 +699,236 @@ async function renderWishlist(viewEl) {
       <div class="empty-state"><p>${escHtml(err.message)}</p></div>
     `;
   }
+}
+
+
+// ════════════════════════════════════════════════════════════════
+// VIEW: QARZLAR (admin)
+// ════════════════════════════════════════════════════════════════
+const qarzlarState = { filter: 'all', debtsById: {} };
+
+const DEBT_FILTERS = [
+  { key: 'all',     label: 'Hammasi' },
+  { key: 'active',  label: 'Faol' },
+  { key: 'overdue', label: "Muddati o'tgan" },
+  { key: 'paid',    label: "To'langan" },
+];
+
+function debtStatusBadge(d) {
+  if (d.status === "to'langan") return `<span class="status-badge status-tolangan">To'langan</span>`;
+  if (d.is_overdue) return `<span class="status-badge status-overdue">Muddati o'tgan</span>`;
+  return `<span class="status-badge status-faol">Faol</span>`;
+}
+
+async function renderQarzlar(viewEl) {
+  if (!state.isAdmin) {
+    viewEl.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🔒</div><h3 class="empty-state-title">Ruxsat yo'q</h3><p class="empty-state-text">Bu bo'lim faqat adminlar uchun.</p></div>`;
+    return;
+  }
+
+  viewEl.innerHTML = `
+    <div class="view-page">
+      <div class="page-head">
+        <h1 class="page-title">Qarzlar</h1>
+        <p class="page-sub">Mijozlar qarzlari daftari</p>
+      </div>
+      <div id="debt-stats" class="debt-stats"></div>
+      <div id="debt-filters" class="filter-row"></div>
+      <div id="debts-list" class="orders-list">
+        <div class="product-skeleton" style="aspect-ratio:auto;height:120px;"></div>
+        <div class="product-skeleton" style="aspect-ratio:auto;height:120px;"></div>
+      </div>
+    </div>
+  `;
+
+  const fr = viewEl.querySelector('#debt-filters');
+  DEBT_FILTERS.forEach(f => {
+    const chip = document.createElement('button');
+    chip.className = 'filter-chip' + (f.key === qarzlarState.filter ? ' active' : '');
+    chip.textContent = f.label;
+    chip.addEventListener('click', () => {
+      qarzlarState.filter = f.key;
+      fr.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      haptic.light();
+      loadDebts();
+    });
+    fr.appendChild(chip);
+  });
+
+  loadDebts();
+}
+
+async function loadDebts() {
+  const list = document.getElementById('debts-list');
+  const statsEl = document.getElementById('debt-stats');
+  if (!list) return;
+  try {
+    const data = await API.get('/api/admin/debts?status=' + qarzlarState.filter);
+
+    if (statsEl) {
+      const s = data.stats;
+      statsEl.innerHTML = `
+        <div class="debt-stat"><span class="debt-stat-label">Qoldiq jami</span><strong>${fmtMoney(s.total_outstanding)}</strong></div>
+        <div class="debt-stat"><span class="debt-stat-label">Faol</span><strong>${s.active_count}</strong></div>
+        <div class="debt-stat"><span class="debt-stat-label">Muddati o'tgan</span><strong class="debt-stat-red">${s.overdue_count}</strong></div>
+        <div class="debt-stat"><span class="debt-stat-label">To'langan</span><strong>${s.paid_count}</strong></div>
+      `;
+    }
+
+    qarzlarState.debtsById = {};
+    list.innerHTML = '';
+
+    if (!data.debts?.length) {
+      list.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📒</div><h3 class="empty-state-title">Qarz yo'q</h3><p class="empty-state-text">Bu bo'limda qarz topilmadi.</p></div>`;
+      return;
+    }
+
+    data.debts.forEach((d, idx) => {
+      qarzlarState.debtsById[d.id] = d;
+      list.appendChild(makeDebtCard(d, idx));
+    });
+  } catch (err) {
+    list.innerHTML = `<div class="empty-state"><div class="empty-state-icon">!</div><p class="empty-state-text">${escHtml(err.message)}</p></div>`;
+  }
+}
+
+function debtDueInfo(d) {
+  if (d.status === "to'langan") return fmtDate(d.due_date);
+  if (d.days_until_due < 0) return `${fmtDate(d.due_date)} · ${Math.abs(d.days_until_due)} kun o'tgan`;
+  if (d.days_until_due === 0) return `${fmtDate(d.due_date)} · bugun`;
+  return `${fmtDate(d.due_date)} · ${d.days_until_due} kun qoldi`;
+}
+
+function makeDebtCard(d, idx) {
+  const card = document.createElement('div');
+  card.className = 'order-card debt-card';
+  card.style.animationDelay = `${idx * 0.05}s`;
+  card.innerHTML = `
+    <div class="order-head">
+      <div>
+        <div class="order-id">${escHtml(d.customer_name)}</div>
+        <div class="order-date">${escHtml(d.customer_phone)}</div>
+      </div>
+      ${debtStatusBadge(d)}
+    </div>
+    <div class="debt-amounts">
+      <span class="debt-out">Qoldiq: <strong>${fmtMoney(d.outstanding)}</strong></span>
+      <span class="debt-total">/ ${fmtMoney(d.total_amount)}</span>
+    </div>
+    <div class="order-foot">
+      <span class="order-meta">⏰ ${debtDueInfo(d)}</span>
+    </div>
+  `;
+  card.addEventListener('click', () => openDebtDetail(d.id));
+  return card;
+}
+
+function openDebtDetail(id) {
+  const d = qarzlarState.debtsById[id];
+  if (!d) return;
+  haptic.medium();
+
+  const isActive = d.status !== "to'langan";
+  const itemsHTML = (d.items && d.items.length)
+    ? `<div class="debt-items">${d.items.map(it => `<div class="debt-item-row"><span>${escHtml(it.name)} × ${(it.qty || 1)}</span><span>${fmtMoney((it.qty || 0) * (it.price || 0))}</span></div>`).join('')}</div>`
+    : '';
+
+  const modal = document.createElement('div');
+  modal.className = 'debt-modal open';
+  modal.innerHTML = `
+    <div class="debt-modal-backdrop"></div>
+    <div class="debt-modal-panel">
+      <div class="sheet-handle"></div>
+      <button class="debt-modal-close" id="debt-modal-close" aria-label="Yopish">✕</button>
+      <div class="debt-modal-head">
+        <h3>${escHtml(d.customer_name)}</h3>
+        ${debtStatusBadge(d)}
+      </div>
+      <div class="debt-modal-body">
+        <div class="debt-info-row"><span>📞 Telefon</span><span>${escHtml(d.customer_phone)}</span></div>
+        ${d.customer_telegram ? `<div class="debt-info-row"><span>💬 Telegram</span><span>@${escHtml(d.customer_telegram)}</span></div>` : ''}
+        ${itemsHTML}
+        <div class="debt-info-row"><span>💰 Umumiy</span><span>${fmtMoney(d.total_amount)}</span></div>
+        <div class="debt-info-row"><span>✅ To'langan</span><span>${fmtMoney(d.paid_amount)}</span></div>
+        <div class="debt-info-row debt-info-strong"><span>🔴 Qoldiq</span><span>${fmtMoney(d.outstanding)}</span></div>
+        <div class="debt-info-row"><span>📅 Muddat</span><span>${escHtml(debtDueInfo(d))}</span></div>
+        ${d.notes ? `<div class="debt-info-row"><span>📝 Izoh</span><span>${escHtml(d.notes)}</span></div>` : ''}
+        ${(!d.has_chat && isActive) ? `<p class="debt-warn">⚠️ Mijoz bot bilan bog'lanmagan — eslatma qo'lda yuboriladi</p>` : ''}
+        ${isActive ? `
+        <div class="debt-action-block">
+          <label class="form-label">💵 To'lov qo'shish</label>
+          <div class="debt-pay-row">
+            <input type="number" inputmode="numeric" class="form-input" id="debt-pay-input" placeholder="Summa (so'm)" />
+            <button class="btn-primary" id="debt-pay-btn"><span>Qo'shish</span></button>
+          </div>
+        </div>
+        <div class="debt-action-block">
+          <label class="form-label">🔔 Eslatma yuborish</label>
+          <div class="debt-tone-row">
+            <button class="filter-chip" data-tone="friendly">🙂 Yumshoq</button>
+            <button class="filter-chip" data-tone="polite">📋 Rasmiy</button>
+            <button class="filter-chip" data-tone="urgent">⚠️ Qattiq</button>
+          </div>
+        </div>` : ''}
+        <button class="debt-del-btn" id="debt-del-btn">🗑 Qarzni o'chirish</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  if (tg?.BackButton) { tg.BackButton.show(); tg.BackButton.onClick(close); }
+
+  function close() {
+    modal.remove();
+    updateBackButton();
+  }
+  modal.querySelector('.debt-modal-backdrop').addEventListener('click', close);
+  modal.querySelector('#debt-modal-close').addEventListener('click', close);
+
+  if (isActive) {
+    modal.querySelector('#debt-pay-btn').addEventListener('click', async (e) => {
+      const input = modal.querySelector('#debt-pay-input');
+      const val = parseFloat(input.value);
+      if (!val || val <= 0) { haptic.warning(); showToast('Summani kiriting'); return; }
+      e.currentTarget.disabled = true;
+      try {
+        await API.post(`/api/admin/debts/${id}/payment`, { amount: val });
+        haptic.success(); showToast("To'lov qo'shildi");
+        close(); loadDebts();
+      } catch (err) { e.currentTarget.disabled = false; haptic.error(); showToast(err.message); }
+    });
+
+    modal.querySelectorAll('[data-tone]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        haptic.medium();
+        btn.disabled = true;
+        try {
+          const r = await API.post(`/api/admin/debts/${id}/reminder`, { tone: btn.dataset.tone });
+          const msg = r.delivery_status === 'sent' ? '✅ Eslatma mijozga yuborildi'
+            : r.delivery_status === 'failed' ? "⚠️ Yuborilmadi — qo'lda yuboring"
+            : "📋 Mijoz bog'lanmagan — qo'lda yuboring";
+          showToast(msg);
+          haptic.success();
+        } catch (err) { haptic.error(); showToast(err.message); }
+        finally { btn.disabled = false; }
+      });
+    });
+  }
+
+  modal.querySelector('#debt-del-btn').addEventListener('click', () => {
+    const doDelete = async () => {
+      try {
+        await API.del(`/api/admin/debts/${id}`);
+        haptic.success(); showToast("Qarz o'chirildi");
+        close(); loadDebts();
+      } catch (err) { haptic.error(); showToast(err.message); }
+    };
+    if (tg?.showConfirm) {
+      tg.showConfirm("Qarzni o'chirishni tasdiqlaysizmi?", (ok) => { if (ok) doDelete(); });
+    } else {
+      doDelete();
+    }
+  });
 }
 
 
@@ -1109,8 +1366,16 @@ async function loadShopInfo() {
   } catch (err) { console.warn(err); }
 }
 
+async function loadMe() {
+  try {
+    const data = await API.get('/api/me');
+    state.isAdmin = !!data.is_admin;
+  } catch (err) { state.isAdmin = false; }
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   await loadShopInfo();
+  await loadMe();
   await loadWishlistIds();
   await loadCart();
   navigate('home', null, { fromHistory: true });

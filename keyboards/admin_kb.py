@@ -8,7 +8,9 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from database.models import Product, Order, OrderStatus
+from datetime import date
+
+from database.models import Product, Order, OrderStatus, Debt, DebtStatus
 from utils.formatters import fmt_money, stock_emoji, truncate, status_emoji
 
 
@@ -18,8 +20,8 @@ def admin_main_kb() -> ReplyKeyboardMarkup:
             [KeyboardButton(text="📦 Mahsulotlar"), KeyboardButton(text="🏪 Ombor")],
             [KeyboardButton(text="🛒 Buyurtmalar"), KeyboardButton(text="💰 Tezkor sotuv")],
             [KeyboardButton(text="📊 Hisobotlar"), KeyboardButton(text="💸 Xarajatlar")],
-            [KeyboardButton(text="👥 Foydalanuvchilar"), KeyboardButton(text="⚙️ Sozlamalar")],
-            [KeyboardButton(text="🛍 Mijoz rejimi")],
+            [KeyboardButton(text="📒 Qarzlar"), KeyboardButton(text="👥 Foydalanuvchilar")],
+            [KeyboardButton(text="⚙️ Sozlamalar"), KeyboardButton(text="🛍 Mijoz rejimi")],
         ],
         resize_keyboard=True,
     )
@@ -353,4 +355,74 @@ def quick_sale_pick_product_kb(
         kb.row(InlineKeyboardButton(text="🔍 Qidirish", callback_data="qs:search"))
 
     kb.row(InlineKeyboardButton(text="❌ Bekor", callback_data="qs:cancel"))
+    return kb.as_markup()
+
+
+# ─── QARZLAR (DEBTS) ──────────────────────────────────────────────────
+
+def debt_status_emoji(debt: Debt) -> str:
+    """🟢 to'langan, 🔴 muddati o'tgan, 🟡 faol"""
+    if debt.status == DebtStatus.PAID:
+        return "🟢"
+    if debt.due_date < date.today():
+        return "🔴"
+    return "🟡"
+
+
+def debts_menu_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text="➕ Yangi qarz", callback_data="db:new")
+    kb.button(text="📋 Hammasi", callback_data="db:list:all")
+    kb.button(text="🟡 Faol", callback_data="db:list:active")
+    kb.button(text="🔴 Muddati o'tgan", callback_data="db:list:overdue")
+    kb.button(text="🟢 To'langan", callback_data="db:list:paid")
+    kb.adjust(1, 2, 2)
+    return kb.as_markup()
+
+
+def debts_list_kb(debts: list[Debt], flt: str = "all") -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for d in debts[:20]:
+        kb.row(InlineKeyboardButton(
+            text=f"{debt_status_emoji(d)} {truncate(d.customer_name, 18)} — {fmt_money(d.outstanding)}",
+            callback_data=f"db:view:{d.id}",
+        ))
+    kb.row(InlineKeyboardButton(text="🔄 Yangilash", callback_data=f"db:list:{flt}"))
+    kb.row(InlineKeyboardButton(text="🔙 Qarzlar menyusi", callback_data="db:menu"))
+    return kb.as_markup()
+
+
+def debt_detail_kb(debt: Debt) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    if debt.status == DebtStatus.ACTIVE:
+        kb.button(text="💵 To'lov qo'shish", callback_data=f"db:pay:{debt.id}")
+        kb.button(text="🔔 Eslatma yuborish", callback_data=f"db:remind:{debt.id}")
+    kb.button(text="🗑 O'chirish", callback_data=f"db:del:{debt.id}")
+    kb.button(text="🔙 Ro'yxat", callback_data="db:list:all")
+    kb.adjust(2, 1, 1)
+    return kb.as_markup()
+
+
+def debt_tone_kb(debt_id: int) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🙂 Yumshoq", callback_data=f"db:send:{debt_id}:friendly")
+    kb.button(text="📋 Rasmiy", callback_data=f"db:send:{debt_id}:polite")
+    kb.button(text="⚠️ Qattiq", callback_data=f"db:send:{debt_id}:urgent")
+    kb.button(text="🔙 Orqaga", callback_data=f"db:view:{debt_id}")
+    kb.adjust(1, 1, 1, 1)
+    return kb.as_markup()
+
+
+def debt_confirm_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✅ Saqlash", callback_data="db:save")
+    kb.button(text="❌ Bekor qilish", callback_data="db:cancel")
+    kb.adjust(2)
+    return kb.as_markup()
+
+
+def debt_items_kb() -> InlineKeyboardMarkup:
+    """Mahsulotlar kiritish bosqichida — o'tkazib yuborish"""
+    kb = InlineKeyboardBuilder()
+    kb.button(text="⏭ Mahsulotsiz davom etish", callback_data="db:items_skip")
     return kb.as_markup()

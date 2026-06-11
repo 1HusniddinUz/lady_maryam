@@ -16,6 +16,7 @@ from handlers.admin import expenses as admin_expenses
 from handlers.admin import users as admin_users
 from handlers.admin import settings as admin_settings
 from handlers.admin import quick_sale as admin_quick_sale
+from handlers.admin import debts as admin_debts
 
 
 def register_all_handlers(dp: Dispatcher) -> None:
@@ -33,6 +34,7 @@ def register_all_handlers(dp: Dispatcher) -> None:
     dp.include_router(admin_users.router)
     dp.include_router(admin_settings.router)
     dp.include_router(admin_quick_sale.router)
+    dp.include_router(admin_debts.router)
 
     # 3. Mijoz handlerlari
     dp.include_router(customer_catalog.router)

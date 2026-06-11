@@ -50,6 +50,17 @@ async def get_user_by_tg_id(session: AsyncSession, telegram_id: int) -> Optional
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
+async def get_user_by_username(session: AsyncSession, username: str) -> Optional[User]:
+    """Username bo'yicha foydalanuvchini topadi ('@' bilan yoki '@' siz)"""
+    if not username:
+        return None
+    uname = username.lstrip("@").strip()
+    if not uname:
+        return None
+    stmt = select(User).where(func.lower(User.username) == uname.lower())
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
 async def get_all_users(session: AsyncSession, only_customers: bool = False) -> List[User]:
     stmt = select(User).order_by(User.created_at.desc())
     if only_customers:

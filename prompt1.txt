@@ -1,0 +1,1206 @@
+# ════════════════════════════════════════════════════════════════
+#
+#   Lady Maryam Atelier — Universal Setup Skripti
+#
+#   Bu bitta skript hammasini bajaradi:
+#     1. Tizimni tekshiradi (Git, Python, Node.js, Internet)
+#     2. ZIP yuklangan papkani backup qiladi
+#     3. GitHub'dan toza clone qiladi (.git papka bilan)
+#     4. Sizning local kodingizni qaytaradi
+#     5. Python venv yaratadi va dependencies o'rnatadi
+#     6. .env va .gitignore'ni sozlaydi
+#     7. Claude Code'ni o'rnatadi (ixtiyoriy)
+#     8. Claude Code uchun CLAUDE.md va spec fayllarini yaratadi
+#     9. Database backup oladi (ixtiyoriy)
+#    10. Tekshiruv o'tkazadi va hisobot beradi
+#
+# ════════════════════════════════════════════════════════════════
+#
+#   FOYDALANISH:
+#
+#   1️⃣  PowerShell'ni "Run as administrator" rejimida oching:
+#        Windows tugmasi → "PowerShell" → o'ng tugma → Run as administrator
+#
+#   2️⃣  Execution policy'ni sozlang (bir martalik):
+#        Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+#        (Y bosing, Enter)
+#
+#   3️⃣  Bu skriptni Desktop'ga qo'ying va ishga tushiring:
+#        cd C:\Users\Администратор\Desktop
+#        .\setup.ps1
+#
+# ════════════════════════════════════════════════════════════════
+
+
+# ════════════════════════════════════════════════════════════════
+# ⚙️  KONFIGURATSIYA — kerak bo'lsa o'zgartiring
+# ════════════════════════════════════════════════════════════════
+
+$CONFIG = @{
+    GitHubUrl    = "https://github.com/1HusniddinUz/lady_maryam.git"
+    Branch       = "main"
+    Desktop      = "$env:USERPROFILE\Desktop"
+    OldFolder    = "lady_maryam-main"      # ZIP'dan yuklangan papka nomi
+    NewFolder    = "lady_maryam"           # Toza papka nomi
+    BackupFolder = "lady_maryam-backup"    # Zaxira papka nomi
+    PythonCmd    = "python"
+}
+
+# ════════════════════════════════════════════════════════════════
+# 🎨 UTILITIES — ranglar va helper funksiyalar
+# ════════════════════════════════════════════════════════════════
+
+$ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+
+# Banner
+function Show-Banner {
+    Clear-Host
+    Write-Host ""
+    Write-Host "  ╔═══════════════════════════════════════════════════════╗" -ForegroundColor Magenta
+    Write-Host "  ║                                                       ║" -ForegroundColor Magenta
+    Write-Host "  ║     " -NoNewline -ForegroundColor Magenta
+    Write-Host "✦  L A D Y   M A R Y A M   A T E L I E R" -NoNewline -ForegroundColor White
+    Write-Host "      ║" -ForegroundColor Magenta
+    Write-Host "  ║     " -NoNewline -ForegroundColor Magenta
+    Write-Host "Universal Setup Skripti" -NoNewline -ForegroundColor DarkYellow
+    Write-Host "                       ║" -ForegroundColor Magenta
+    Write-Host "  ║                                                       ║" -ForegroundColor Magenta
+    Write-Host "  ╚═══════════════════════════════════════════════════════╝" -ForegroundColor Magenta
+    Write-Host ""
+}
+
+function Write-Step {
+    param([string]$Num, [string]$Title)
+    Write-Host ""
+    Write-Host "  ┌─────────────────────────────────────────────────────┐" -ForegroundColor DarkCyan
+    Write-Host "  │ " -NoNewline -ForegroundColor DarkCyan
+    Write-Host " $Num " -NoNewline -ForegroundColor White -BackgroundColor DarkBlue
+    Write-Host "  $Title" -NoNewline -ForegroundColor Cyan
+    $padding = 50 - $Title.Length - $Num.Length
+    Write-Host (" " * $padding) -NoNewline
+    Write-Host "│" -ForegroundColor DarkCyan
+    Write-Host "  └─────────────────────────────────────────────────────┘" -ForegroundColor DarkCyan
+}
+
+function Write-Ok   { param([string]$m) Write-Host "    ✓ " -NoNewline -ForegroundColor Green; Write-Host $m -ForegroundColor White }
+function Write-Warn { param([string]$m) Write-Host "    ⚠ " -NoNewline -ForegroundColor Yellow; Write-Host $m -ForegroundColor Yellow }
+function Write-Err  { param([string]$m) Write-Host "    ✗ " -NoNewline -ForegroundColor Red; Write-Host $m -ForegroundColor Red }
+function Write-Info { param([string]$m) Write-Host "    → " -NoNewline -ForegroundColor DarkGray; Write-Host $m -ForegroundColor Gray }
+function Write-Cmd  { param([string]$m) Write-Host "      $m" -ForegroundColor DarkCyan }
+
+function Test-Cmd { param([string]$c) return [bool](Get-Command $c -ErrorAction SilentlyContinue) }
+
+function Ask-Yes {
+    param([string]$Question, [bool]$Default = $true)
+    Write-Host ""
+    $suffix = if ($Default) { "[Y/n]" } else { "[y/N]" }
+    Write-Host "    ❓ $Question $suffix " -NoNewline -ForegroundColor Yellow
+    $answer = Read-Host
+    if (-not $answer) { return $Default }
+    return $answer -match "^[yY]"
+}
+
+function Wait-Enter {
+    param([string]$Msg = "Davom etish uchun Enter bosing...")
+    Write-Host ""
+    Write-Host "    $Msg" -ForegroundColor DarkGray
+    [void](Read-Host)
+}
+
+# ════════════════════════════════════════════════════════════════
+# 🚀 BOSHLASH
+# ════════════════════════════════════════════════════════════════
+
+Show-Banner
+
+Write-Host "  Bu skript " -NoNewline -ForegroundColor White
+Write-Host "Lady Maryam" -NoNewline -ForegroundColor Cyan
+Write-Host " loyihangizni " -NoNewline -ForegroundColor White
+Write-Host "GitHub'dan tiklab" -NoNewline -ForegroundColor Green
+Write-Host "," -ForegroundColor White
+Write-Host "  Claude Code bilan ishlash uchun to'liq sozlab beradi." -ForegroundColor White
+Write-Host ""
+Write-Host "  Loyiha: " -NoNewline -ForegroundColor DarkGray
+Write-Host $CONFIG.GitHubUrl -ForegroundColor Cyan
+Write-Host "  Joy:    " -NoNewline -ForegroundColor DarkGray
+Write-Host "$($CONFIG.Desktop)\$($CONFIG.NewFolder)" -ForegroundColor Cyan
+Write-Host ""
+
+if (-not (Ask-Yes "Davom etamizmi?")) {
+    Write-Host ""
+    Write-Host "  Bekor qilindi." -ForegroundColor Yellow
+    exit 0
+}
+
+# ════════════════════════════════════════════════════════════════
+# 1️⃣  TIZIM TEKSHIRUVI
+# ════════════════════════════════════════════════════════════════
+
+Write-Step "1/10" "Tizim tekshiruvi"
+
+$systemIssues = @()
+
+# Git
+if (Test-Cmd "git") {
+    $gitVer = (git --version) -replace "git version ", ""
+    Write-Ok "Git $gitVer"
+} else {
+    Write-Err "Git topilmadi"
+    Write-Info "Yuklab oling: https://git-scm.com/download/win"
+    $systemIssues += "Git"
+}
+
+# Python
+if (Test-Cmd $CONFIG.PythonCmd) {
+    $pyVer = (& $CONFIG.PythonCmd --version) -replace "Python ", ""
+    Write-Ok "Python $pyVer"
+} else {
+    Write-Err "Python topilmadi"
+    Write-Info "Yuklab oling: https://www.python.org/downloads/"
+    Write-Info "MUHIM: 'Add Python to PATH' belgilang!"
+    $systemIssues += "Python"
+}
+
+# Node.js (Claude Code uchun)
+if (Test-Cmd "node") {
+    $nodeVer = node --version
+    Write-Ok "Node.js $nodeVer"
+} else {
+    Write-Warn "Node.js topilmadi (Claude Code uchun kerak)"
+    Write-Info "Yuklab oling: https://nodejs.org/ (LTS)"
+}
+
+# Internet
+try {
+    $null = Invoke-WebRequest -Uri "https://github.com" -Method Head -TimeoutSec 5 -ErrorAction Stop
+    Write-Ok "Internet ulanishi normal"
+} catch {
+    Write-Err "GitHub'ga ulana olmadim"
+    $systemIssues += "Internet"
+}
+
+# Chiqish agar muhim narsalar yo'q bo'lsa
+if ($systemIssues -contains "Git" -or $systemIssues -contains "Python" -or $systemIssues -contains "Internet") {
+    Write-Host ""
+    Write-Err "Muhim komponentlar yo'q. Avval ularni o'rnating, keyin skriptni qayta ishga tushiring."
+    exit 1
+}
+
+# ════════════════════════════════════════════════════════════════
+# 2️⃣  ESKI PAPKANI BACKUP QILISH
+# ════════════════════════════════════════════════════════════════
+
+Write-Step "2/10" "Mavjud kodingizni zaxiralash"
+
+$oldPath = Join-Path $CONFIG.Desktop $CONFIG.OldFolder
+$newPath = Join-Path $CONFIG.Desktop $CONFIG.NewFolder
+$backupPath = Join-Path $CONFIG.Desktop $CONFIG.BackupFolder
+
+$hasLocalChanges = $false
+
+if (Test-Path $oldPath) {
+    Write-Info "ZIP papka topildi: $oldPath"
+
+    if (Test-Path "$oldPath\.git") {
+        Write-Ok "Bu git repo (clone qilingan)"
+        if (Test-Path $newPath) {
+            Write-Warn "$($CONFIG.NewFolder) ham mavjud"
+            if (Ask-Yes "Eski $($CONFIG.OldFolder)'ni o'chirib yuborishni xohlaysizmi?") {
+                Remove-Item $oldPath -Recurse -Force
+                Write-Ok "Eski papka o'chirildi"
+            }
+        } else {
+            # rename qilamiz
+            Rename-Item $oldPath $CONFIG.NewFolder
+            Write-Ok "$($CONFIG.OldFolder) → $($CONFIG.NewFolder) rename qilindi"
+        }
+    } else {
+        Write-Warn "Bu ZIP archive — .git papka yo'q"
+        Write-Info "Sizning kodingizni zaxiralayman..."
+
+        if (Test-Path $backupPath) {
+            $oldBackupName = "$($CONFIG.BackupFolder)-$(Get-Date -Format 'yyyyMMdd_HHmm')"
+            Rename-Item $backupPath $oldBackupName
+            Write-Info "Eski backup saqlandi: $oldBackupName"
+        }
+
+        Copy-Item $oldPath $backupPath -Recurse -Force
+        Write-Ok "Zaxira yaratildi: $backupPath"
+        $hasLocalChanges = $true
+
+        Remove-Item $oldPath -Recurse -Force
+        Write-Ok "ZIP papka o'chirildi"
+    }
+} else {
+    Write-Info "$($CONFIG.OldFolder) topilmadi"
+    if (Test-Path $newPath -and (Test-Path "$newPath\.git")) {
+        Write-Ok "$($CONFIG.NewFolder) mavjud va git repo"
+    } else {
+        Write-Info "Toza clone qilamiz"
+    }
+}
+
+# ════════════════════════════════════════════════════════════════
+# 3️⃣  GITHUB'DAN CLONE
+# ════════════════════════════════════════════════════════════════
+
+Write-Step "3/10" "GitHub'dan loyiha"
+
+Set-Location $CONFIG.Desktop
+
+if ((Test-Path $newPath) -and (Test-Path "$newPath\.git")) {
+    Write-Ok "Loyiha allaqachon mavjud"
+    Set-Location $newPath
+
+    Write-Info "GitHub'dan yangiliklarni tekshiraman..."
+    try {
+        git fetch origin 2>&1 | Out-Null
+        $behind = [int](git rev-list --count "HEAD..origin/$($CONFIG.Branch)" 2>$null)
+        if ($behind -gt 0) {
+            Write-Warn "GitHub'da $behind ta yangi commit bor"
+            if (Ask-Yes "Pull qilamizmi (yangi kodlarni olish)?") {
+                git pull origin $CONFIG.Branch
+                Write-Ok "Pull tugadi"
+            }
+        } else {
+            Write-Ok "GitHub bilan sinxron"
+        }
+    } catch {
+        Write-Warn "Fetch ishlamadi, davom etamiz"
+    }
+} else {
+    Write-Info "Clone: $($CONFIG.GitHubUrl)"
+    Write-Info "Bu biroz vaqt olishi mumkin..."
+
+    try {
+        $cloneResult = git clone $CONFIG.GitHubUrl $CONFIG.NewFolder 2>&1
+        $cloneResult | ForEach-Object { Write-Host "      $_" -ForegroundColor DarkGray }
+
+        if (-not (Test-Path $newPath)) {
+            throw "Clone amalga oshmadi"
+        }
+        Write-Ok "Clone muvaffaqiyatli"
+        Set-Location $newPath
+    } catch {
+        Write-Err "Clone xatosi: $_"
+        Write-Host ""
+        Write-Info "Mumkin bo'lgan sabablar:"
+        Write-Info "  1. Repo PRIVATE — Personal Access Token kerak"
+        Write-Info "  2. Internet muammosi"
+        Write-Host ""
+        Write-Info "Private repo uchun yo'l-yo'riq:"
+        Write-Info "  a. https://github.com/settings/tokens ga kiring"
+        Write-Info "  b. 'Generate new token (classic)' bosing"
+        Write-Info "  c. Scope: 'repo' belgilang"
+        Write-Info "  d. Token'ni nusxalang"
+        Write-Info "  e. Skript yuqorisida GitHubUrl'ni o'zgartiring:"
+        Write-Cmd 'GitHubUrl = "https://1HusniddinUz:TOKEN@github.com/1HusniddinUz/lady_maryam.git"'
+        Write-Info "  f. Skriptni qayta ishga tushiring"
+        exit 1
+    }
+}
+
+# Branch va commitlar
+$branch = (git branch --show-current).Trim()
+Write-Ok "Branch: $branch"
+Write-Info "Oxirgi 3 ta commit:"
+git log --oneline -3 2>$null | ForEach-Object { Write-Host "      $_" -ForegroundColor DarkCyan }
+
+# ════════════════════════════════════════════════════════════════
+# 4️⃣  LOCAL O'ZGARISHLARNI QAYTARISH
+# ════════════════════════════════════════════════════════════════
+
+Write-Step "4/10" "Local o'zgarishlarni birlashtirish"
+
+if ($hasLocalChanges -and (Test-Path $backupPath)) {
+    if (Ask-Yes "Zaxiradagi kodlarni hozirgi repo'ga ko'chiramizmi?") {
+        $excludeDirs = @("venv", "node_modules", "__pycache__", ".git", "dist", "build", ".idea", ".vscode", ".pytest_cache")
+        $excludeFiles = @("*.pyc", "*.pyo", "*.log", "*.tmp")
+
+        $copied = 0
+        $skipped = 0
+
+        Get-ChildItem -Path $backupPath -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+            $relPath = $_.FullName.Substring($backupPath.Length + 1)
+
+            $skip = $false
+            foreach ($dir in $excludeDirs) {
+                if ($relPath -match "(^|[\\/])$dir([\\/]|$)") { $skip = $true; break }
+            }
+            if (-not $skip) {
+                foreach ($pattern in $excludeFiles) {
+                    if ($_.Name -like $pattern) { $skip = $true; break }
+                }
+            }
+
+            if ($skip) { $skipped++; return }
+
+            $destPath = Join-Path $newPath $relPath
+            $destDir = Split-Path $destPath -Parent
+            if (-not (Test-Path $destDir)) {
+                New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+            }
+
+            $shouldCopy = $true
+            if (Test-Path $destPath) {
+                try {
+                    $oldHash = (Get-FileHash $destPath -Algorithm MD5).Hash
+                    $newHash = (Get-FileHash $_.FullName -Algorithm MD5).Hash
+                    if ($oldHash -eq $newHash) { $shouldCopy = $false }
+                } catch { }
+            }
+
+            if ($shouldCopy) {
+                Copy-Item -Path $_.FullName -Destination $destPath -Force
+                $copied++
+            }
+        }
+
+        Write-Ok "$copied ta fayl ko'chirildi, $skipped ta o'tkazib yuborildi"
+
+        # Git status
+        Write-Info "O'zgarishlar:"
+        $changes = git status --porcelain 2>$null
+        if ($changes) {
+            $changes | Select-Object -First 8 | ForEach-Object {
+                Write-Host "      $_" -ForegroundColor Yellow
+            }
+            if ($changes.Count -gt 8) {
+                Write-Info "... yana $($changes.Count - 8) ta"
+            }
+        } else {
+            Write-Info "O'zgarishlar yo'q (kodingiz GitHub bilan bir xil edi)"
+        }
+    } else {
+        Write-Info "Zaxira o'z joyida qoldi: $backupPath"
+    }
+} else {
+    Write-Info "Local o'zgarishlar yo'q (yoki zaxira yo'q)"
+}
+
+# ════════════════════════════════════════════════════════════════
+# 5️⃣  PYTHON VENV VA DEPENDENCIES
+# ════════════════════════════════════════════════════════════════
+
+Write-Step "5/10" "Python virtual environment"
+
+if (Test-Path "venv") {
+    Write-Ok "venv mavjud"
+} else {
+    Write-Info "venv yaratilmoqda..."
+    & $CONFIG.PythonCmd -m venv venv
+    if (-not (Test-Path "venv")) {
+        Write-Err "venv yaratilmadi"
+        exit 1
+    }
+    Write-Ok "venv yaratildi"
+}
+
+& .\venv\Scripts\Activate.ps1
+if ($env:VIRTUAL_ENV) {
+    Write-Ok "venv faollashtirildi"
+} else {
+    Write-Err "venv activate xatosi"
+    exit 1
+}
+
+Write-Info "pip yangilanmoqda..."
+& $CONFIG.PythonCmd -m pip install --upgrade pip --quiet 2>&1 | Out-Null
+Write-Ok "pip yangi"
+
+if (Test-Path "requirements.txt") {
+    Write-Info "Kutubxonalar o'rnatilmoqda (2-5 daqiqa)..."
+    $installOutput = & pip install -r requirements.txt 2>&1
+    $successCount = ($installOutput | Where-Object { $_ -match "Successfully installed" } | Measure-Object).Count
+    $errorLines = $installOutput | Where-Object { $_ -match "ERROR|error" }
+
+    if ($errorLines) {
+        Write-Warn "Ba'zi xatolar bor:"
+        $errorLines | Select-Object -First 3 | ForEach-Object { Write-Host "      $_" -ForegroundColor Red }
+    }
+    Write-Ok "Dependencies o'rnatildi"
+} else {
+    Write-Warn "requirements.txt yo'q"
+}
+
+# package.json (frontend uchun)
+if (Test-Path "package.json") {
+    if (Test-Cmd "npm") {
+        if (Ask-Yes "package.json topildi. npm install qilamizmi?") {
+            Write-Info "npm install ishga tushirilmoqda..."
+            npm install --silent 2>&1 | Out-Null
+            Write-Ok "npm dependencies o'rnatildi"
+        }
+    }
+}
+
+# ════════════════════════════════════════════════════════════════
+# 6️⃣  .ENV VA .GITIGNORE
+# ════════════════════════════════════════════════════════════════
+
+Write-Step "6/10" ".env va .gitignore"
+
+# .gitignore
+$gitignoreNeeded = @(".env", "venv/", "__pycache__/", "*.pyc", ".vscode/", "node_modules/", ".DS_Store", "backup_*.sql", "*.dump")
+$gitignoreContent = ""
+if (Test-Path ".gitignore") {
+    $gitignoreContent = Get-Content ".gitignore" -Raw
+}
+
+$additions = @()
+foreach ($entry in $gitignoreNeeded) {
+    $escapedEntry = [regex]::Escape($entry)
+    if ($gitignoreContent -notmatch "(?m)^$escapedEntry`?$") {
+        $additions += $entry
+    }
+}
+
+if ($additions.Count -gt 0) {
+    Add-Content -Path ".gitignore" -Value "`n# Auto-added`n$($additions -join "`n")`n"
+    Write-Ok ".gitignore yangilandi: $($additions.Count) ta qoida qo'shildi"
+} else {
+    Write-Ok ".gitignore to'g'ri sozlangan"
+}
+
+# .env tracked qilinganmi
+$trackedEnv = git ls-files ".env" 2>$null
+if ($trackedEnv) {
+    Write-Warn ".env git'da track qilinmoqda!"
+    git rm --cached .env 2>&1 | Out-Null
+    Write-Ok ".env endi track qilinmaydi"
+}
+
+# .env fayl
+if (-not (Test-Path ".env")) {
+    # Backup'da bo'lsa undan olish
+    if (Test-Path "$backupPath\.env") {
+        Copy-Item "$backupPath\.env" ".env"
+        Write-Ok ".env zaxiradan ko'chirildi"
+    } elseif (Test-Path ".env.example") {
+        Copy-Item ".env.example" ".env"
+        Write-Ok ".env.example dan nusxa olindi"
+        Write-Warn "Render dashboard'dan qiymatlarni to'ldiring!"
+    } else {
+        @"
+# ════════════════════════════════════════════════════════════════
+# Lady Maryam — Environment Variables
+# Render dashboard → lady_maryam → Environment'dan ko'chiring
+# ════════════════════════════════════════════════════════════════
+
+# Telegram
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_ADMIN_IDS=
+
+# Anthropic Claude AI
+ANTHROPIC_API_KEY=
+
+# Database — Render muhabbat-db EXTERNAL URL (local test uchun)
+# Production'da Render automatic Internal URL ishlatadi
+DATABASE_URL=
+
+# WebApp
+WEBAPP_URL=https://lady-maryam.onrender.com
+
+# Boshqalar
+TIMEZONE=Asia/Tashkent
+"@ | Out-File -FilePath ".env" -Encoding UTF8
+
+        Write-Ok "Bo'sh .env yaratildi"
+        Write-Warn "MUHIM: .env'ni Render dashboard'dan to'ldiring!"
+    }
+} else {
+    Write-Ok ".env mavjud"
+}
+
+# ════════════════════════════════════════════════════════════════
+# 7️⃣  CLAUDE CODE UCHUN FAYLLAR
+# ════════════════════════════════════════════════════════════════
+
+Write-Step "7/10" "Claude Code uchun maxsus fayllar"
+
+if (-not (Test-Path "_docs")) {
+    New-Item -ItemType Directory -Path "_docs" -Force | Out-Null
+}
+
+# CLAUDE.md
+if (-not (Test-Path "CLAUDE.md")) {
+    @'
+# Lady Maryam Atelier — Loyiha qo'llanmasi
+
+## Loyiha haqida
+
+**Lady Maryam Atelier** — Toshkentdagi ayollar uchun premium kiyim do'koni.
+3 qismdan iborat tizim:
+
+1. **Mijoz Telegram bot** (`@lady_maryam_bot`) — katalog, savatcha, buyurtma
+2. **Mini App (WebApp)** — Telegram ichidagi to'liq SPA
+3. **Admin Telegram bot** — do'kon egasi uchun (ombor, hisobotlar, qarzlar)
+
+## Stack
+
+- **Backend**: Python 3.11+, FastAPI/Flask, aiogram 3.x
+- **Database**: PostgreSQL 16 (Render.com `muhabbat-db` service)
+- **Frontend**: HTML/CSS/JS yoki React, Telegram WebApp SDK
+- **Hosting**: Render.com (`lady_maryam` service + `muhabbat-db`)
+- **AI**: Anthropic Claude API (sonnet-4)
+
+## Dizayn tizimi (Glass Minimalism)
+
+- **Ranglar**: cream/beige fon (#F4EFE6), to'q ink (#1B1714), terracotta accent (#B85A2C)
+- **Shriftlar**: Fraunces (italic serif) sarlavhalar, Manrope (sans) matn
+- **Effektlar**: `backdrop-filter: blur(20px) saturate(180%)`, grain SVG noise
+- **Tugmalar**: pill shape (`border-radius: 100px`), ink → accent hover
+- **Status ranglari**: green (paid), amber (due soon), red (overdue), accent (active)
+
+## Hozirgi vazifa: Qarzlar moduli
+
+Mijozlar mahsulotni qarzga olganida qayd qilish va avtomatik eslatma yuborish.
+
+To'liq spec — `_docs/QARZLAR_SPEC.md` da.
+
+## Muhim qoidalar
+
+### Database migration
+
+❌ HECH QACHON ishlatmang:
+- `DROP TABLE`
+- `TRUNCATE`
+- `db.create_all()` (deploy paytida)
+- `Base.metadata.drop_all()`
+
+✅ Faqat additive:
+- `CREATE TABLE IF NOT EXISTS`
+- `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`
+- `CREATE INDEX IF NOT EXISTS`
+
+### Til
+
+- **Foydalanuvchi ko'radigan matn — O'ZBEK (Latin)**
+- Comment va variable nomlari — inglizcha
+- Commit message — Conventional Commits (`feat:`, `fix:`, `chore:`)
+
+### Code style
+
+- **Python**: type hints, async/await, Pydantic models
+- **aiogram**: Router pattern, FSM, Filter'lar
+- **FastAPI**: Dependency injection (`Depends`)
+
+### Xavfsizlik
+
+- `.env` hech qachon git'ga ketmasligi kerak
+- Admin actions: `user_id IN TELEGRAM_ADMIN_IDS` orqali tekshirish
+- Maxfiy ma'lumotlar commit'da bo'lmasligi kerak
+
+## Render.com setup
+
+- **Service**: `lady_maryam` (Python 3, Frankfurt)
+- **Database**: `muhabbat-db` (PostgreSQL 16, Frankfurt) — ALOHIDA
+- **Deploy**: GitHub push → auto-deploy
+- **Env vars**: Render dashboard → Environment
+
+## Loyiha strukturasi (kutiladigan)
+
+```
+lady_maryam/
+├── bot/                  # aiogram bot
+│   ├── handlers/
+│   ├── states/
+│   ├── services/
+│   ├── scheduler.py
+│   └── main.py
+├── backend/              # FastAPI/Flask
+│   ├── routes/
+│   ├── models/
+│   ├── db/migrations/
+│   └── main.py
+├── webapp/               # Mini App
+│   ├── index.html
+│   ├── css/
+│   └── js/
+├── _docs/
+├── .env (gitignored)
+├── requirements.txt
+└── CLAUDE.md
+```
+
+## Birinchi vazifalar
+
+1. Database migration — `005_create_debts.sql`
+2. Backend models — `backend/models/debt.py`
+3. API endpoints — `backend/routes/debts.py`
+4. Bot handler — `bot/handlers/debts.py`
+5. Scheduler — `bot/scheduler.py` (har kuni 9:00)
+6. Frontend — qarzlar view
+
+## Repository
+
+- **GitHub**: https://github.com/1HusniddinUz/lady_maryam
+- **Owner**: Husniddin (@1HusniddinUz), Buxoro, O'zbekiston
+'@ | Out-File -FilePath "CLAUDE.md" -Encoding UTF8
+
+    Write-Ok "CLAUDE.md yaratildi (loyiha konteksti)"
+} else {
+    Write-Ok "CLAUDE.md mavjud"
+}
+
+# QARZLAR_SPEC.md
+if (-not (Test-Path "_docs\QARZLAR_SPEC.md")) {
+    @'
+# Qarzlar moduli — Texnik spetsifikatsiya
+
+## Maqsad
+
+Mijozlar mahsulotni qarzga olganida:
+1. Qayd qilish (mijoz, mahsulotlar, summa, muddat)
+2. Muddat kelganda **avtomatik Telegram eslatmasi**
+3. Qisman/to'liq to'lovlarni qabul qilish
+
+## Database schema
+
+### `debts` jadvali
+
+```sql
+CREATE TABLE IF NOT EXISTS debts (
+    id SERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL,                 -- admin telegram_id
+    customer_name TEXT NOT NULL,
+    customer_phone TEXT NOT NULL,
+    customer_telegram TEXT,                  -- username (without @)
+    customer_chat_id BIGINT,                 -- mijoz chat_id (eslatma uchun)
+    items JSONB NOT NULL,                    -- [{name, qty, price}]
+    total_amount BIGINT NOT NULL,
+    paid_amount BIGINT DEFAULT 0,
+    taken_date DATE NOT NULL,
+    due_date DATE NOT NULL,
+    notes TEXT,
+    status TEXT DEFAULT 'active',            -- active | paid
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_debts_due_date ON debts(due_date);
+CREATE INDEX IF NOT EXISTS idx_debts_status ON debts(status);
+CREATE INDEX IF NOT EXISTS idx_debts_customer_chat ON debts(customer_chat_id);
+```
+
+### `debt_reminders` jadvali
+
+```sql
+CREATE TABLE IF NOT EXISTS debt_reminders (
+    id SERIAL PRIMARY KEY,
+    debt_id INTEGER REFERENCES debts(id) ON DELETE CASCADE,
+    sent_at TIMESTAMP DEFAULT NOW(),
+    tone TEXT,                               -- polite | urgent | friendly
+    message TEXT NOT NULL,
+    delivery_status TEXT,                    -- sent | failed | manual
+    channel TEXT DEFAULT 'telegram'
+);
+
+CREATE INDEX IF NOT EXISTS idx_reminders_debt ON debt_reminders(debt_id);
+```
+
+## API endpoints
+
+### `GET /api/debts?status=all&search=&page=1`
+
+Response:
+```json
+{
+  "debts": [...],
+  "stats": {
+    "total_outstanding": 5670000,
+    "active_count": 8,
+    "overdue_count": 2,
+    "paid_count": 15
+  }
+}
+```
+
+### `POST /api/debts`
+
+Request:
+```json
+{
+  "customer": {"name": "...", "phone": "...", "telegram": "..."},
+  "items": [{"name": "...", "qty": 1, "price": 450000}],
+  "taken_date": "2026-06-01",
+  "due_date": "2026-06-15",
+  "notes": "..."
+}
+```
+
+### `PATCH /api/debts/{id}`
+### `DELETE /api/debts/{id}`
+### `POST /api/debts/{id}/payment` — `{ "amount": 300000 }`
+### `POST /api/debts/{id}/reminder` — `{ "tone": "polite" }`
+
+## Bot handler (aiogram)
+
+```python
+# bot/handlers/debts.py
+
+router = Router(name="debts")
+
+@router.message(F.text == "Qarzlar", AdminFilter())
+async def debts_menu(message: Message):
+    kb = InlineKeyboardBuilder()
+    kb.button(text="➕ Yangi qarz", callback_data="debt:new")
+    kb.button(text="📋 Hammasi", callback_data="debt:list:all")
+    kb.button(text="🟡 Faol", callback_data="debt:list:active")
+    kb.button(text="🔴 Muddat o'tgan", callback_data="debt:list:overdue")
+    kb.button(text="🟢 To'langan", callback_data="debt:list:paid")
+    kb.adjust(1, 2, 2)
+    await message.answer("📒 Qarzlar daftari", reply_markup=kb.as_markup())
+```
+
+### FSM flow
+
+```python
+class DebtForm(StatesGroup):
+    customer_name = State()
+    customer_phone = State()
+    customer_telegram = State()
+    items = State()
+    due_date = State()
+    notes = State()
+    confirm = State()
+```
+
+## Scheduler — har kuni 9:00 (Asia/Tashkent)
+
+```python
+# bot/scheduler.py
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+import pytz
+
+scheduler = AsyncIOScheduler(timezone=pytz.timezone("Asia/Tashkent"))
+
+@scheduler.scheduled_job(CronTrigger(hour=9, minute=0))
+async def check_due_debts():
+    today = date.today()
+
+    due_debts = await db.fetch_all("""
+        SELECT * FROM debts
+        WHERE due_date <= $1
+          AND paid_amount < total_amount
+          AND id NOT IN (
+              SELECT debt_id FROM debt_reminders
+              WHERE DATE(sent_at) = CURRENT_DATE
+          )
+    """, today)
+
+    for debt in due_debts:
+        await send_debt_reminder(debt)
+```
+
+### Eslatma yuborish
+
+```python
+async def send_debt_reminder(debt: dict):
+    days_overdue = (date.today() - debt["due_date"]).days
+    tone = "urgent" if days_overdue > 0 else "polite"
+    message = await generate_reminder_text(debt, tone)
+
+    if debt["customer_chat_id"]:
+        try:
+            await bot.send_message(debt["customer_chat_id"], message)
+            await log_reminder(debt["id"], tone, message, "sent")
+        except (TelegramForbiddenError, TelegramBadRequest):
+            await log_reminder(debt["id"], tone, message, "failed")
+            await notify_admin_failed(debt, message)
+    else:
+        await notify_admin_manual(debt, message)
+        await log_reminder(debt["id"], tone, message, "manual")
+```
+
+### AI matn generator
+
+```python
+async def generate_reminder_text(debt: dict, tone: str = "polite") -> str:
+    days = (debt["due_date"] - date.today()).days
+    day_context = (
+        f"Muddat {abs(days)} kun avval o'tgan" if days < 0
+        else "Muddat bugun" if days == 0
+        else f"Muddat {days} kun qoldi"
+    )
+
+    tone_desc = {
+        "urgent": "qattiqroq, lekin hurmatli",
+        "friendly": "juda do'stona va yumshoq",
+        "polite": "rasmiy, hurmatli, lekin aniq"
+    }[tone]
+
+    prompt = f"""Lady Maryam Atelier mijoziga qarzni qaytarish bo'yicha eslatma yoz.
+
+Mijoz: {debt['customer_name']}
+Qarz: {debt['total_amount'] - debt['paid_amount']:,} so'm
+Muddat: {debt['due_date']}
+Holat: {day_context}
+Ohang: {tone_desc}
+
+TALABLAR:
+- O'ZBEK tilida, 3-4 jumla
+- "Hurmatli {debt['customer_name']}" deb murojaat
+- Aniq miqdor va muddat
+- Telegram uchun qisqa
+- Imzo: "Lady Maryam Atelier"
+- Faqat xabar matni"""
+
+    client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+    response = await client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=500,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return response.content[0].text.strip()
+```
+
+## Mijoz `chat_id` olish
+
+Yangi qarz qo'shilganda mijozga maxsus link yuboriladi:
+
+```
+https://t.me/lady_maryam_bot?start=debt_{debt_id}_{hash}
+```
+
+Mijoz uni bossa, bot uning `chat_id` ni `debts.customer_chat_id`'ga saqlab oladi.
+Endi kelajakdagi eslatmalar avtomatik shu chat_id'ga keladi.
+
+## Front-end (Mini App)
+
+Admin tomonidan ochiladigan view:
+- 4 ta tab: Hammasi / Faol / Muddat o'tgan / To'langan
+- Status pillari (color-coded)
+- Detail modal (info / send reminder / record payment)
+- AI eslatma generator (3 ohang)
+- Telegram deep link orqali yuborish
+
+## Test stsenariylar
+
+1. Yangi qarz qo'shish — to'liq FSM flow
+2. Qisman to'lov (300 ming → qoldiq to'g'ri)
+3. Eslatma generator (3 ohang)
+4. Muddat o'tgan — 5 kun avvalgi sanada qarz qo'shib, scheduler test
+5. Mijoz chat_id bog'lanishi
+6. Admin-only kirish tekshiruvi
+'@ | Out-File -FilePath "_docs\QARZLAR_SPEC.md" -Encoding UTF8
+
+    Write-Ok "_docs/QARZLAR_SPEC.md yaratildi (texnik spec)"
+} else {
+    Write-Ok "_docs/QARZLAR_SPEC.md mavjud"
+}
+
+# Birinchi vazifa prompti
+if (-not (Test-Path "_docs\BIRINCHI_VAZIFA.md")) {
+    @'
+# Claude Code'ga birinchi xabar
+
+> Quyidagi matnni Claude Code ochilgandan keyin birinchi xabar sifatida yuboring.
+
+---
+
+Salom! Men `lady_maryam` loyihasida ishlayapman — Toshkentdagi ayollar kiyim do'koni uchun Telegram bot va Mini App tizimi.
+
+**Loyiha holati:**
+- Kod GitHub'dan clone qilingan: `https://github.com/1HusniddinUz/lady_maryam.git`
+- Production Render.com'da ishlab turibdi (`lady_maryam` + `muhabbat-db`)
+- venv tayyor, dependencies o'rnatilgan
+
+**Vazifa:**
+
+Loyihaga **qarzlar moduli** qo'shish kerak. To'liq spec — `_docs/QARZLAR_SPEC.md` da. Umumiy kontekst — `CLAUDE.md` da.
+
+**Birinchi qadam — tahlil:**
+
+Avval quyidagilarni qiling:
+1. `CLAUDE.md` ni o'qing
+2. `_docs/QARZLAR_SPEC.md` ni o'qing
+3. `bot/` papkasini ko'ring — qaysi handlerlar, qanday struktura?
+4. `backend/` yoki shunga o'xshash papkani ko'ring — API qanday?
+5. `requirements.txt` ni ko'ring — qanday kutubxonalar bor?
+
+So'ng menga **xulosa** bering:
+- Hozirgi loyiha qanday strukturada?
+- Qarzlar moduli qaysi fayllarga qo'shilishi kerak?
+- Yangi kutubxonalar kerakmi (masalan, APScheduler)?
+- Integratsiyada qanday muammolar bo'lishi mumkin?
+
+Xulosadan keyin biz birinchi konkret faylni yozamiz:
+**`backend/db/migrations/005_create_debts.sql`**
+
+**Muhim qoidalar:**
+- ❌ Mavjud database jadvallariga TEGMANG
+- ✅ Faqat `CREATE TABLE IF NOT EXISTS`
+- ✅ Foydalanuvchi matni — O'ZBEK (Latin)
+- ✅ Type hints, async/await
+- ✅ Test qilmasdan, hech narsa deploy qilmang
+
+Boshlang!
+'@ | Out-File -FilePath "_docs\BIRINCHI_VAZIFA.md" -Encoding UTF8
+
+    Write-Ok "_docs/BIRINCHI_VAZIFA.md yaratildi (birinchi prompt)"
+}
+
+# ════════════════════════════════════════════════════════════════
+# 8️⃣  CLAUDE CODE O'RNATISH
+# ════════════════════════════════════════════════════════════════
+
+Write-Step "8/10" "Claude Code"
+
+if (Test-Cmd "claude") {
+    $claudeVer = (claude --version 2>&1) -replace ".*?(\d+\.\d+\.\d+).*", '$1'
+    Write-Ok "Claude Code allaqachon o'rnatilgan ($claudeVer)"
+} elseif (Test-Cmd "npm") {
+    if (Ask-Yes "Claude Code o'rnatilmagan. Hozir o'rnatamizmi?") {
+        Write-Info "npm install -g @anthropic-ai/claude-code (1-2 daqiqa)..."
+        npm install -g "@anthropic-ai/claude-code" 2>&1 | Out-Null
+
+        if (Test-Cmd "claude") {
+            Write-Ok "Claude Code muvaffaqiyatli o'rnatildi"
+        } else {
+            Write-Warn "Avtomatik o'rnatish ishlamadi"
+            Write-Info "Qo'lda o'rnating:"
+            Write-Cmd "npm install -g @anthropic-ai/claude-code"
+        }
+    }
+} else {
+    Write-Warn "npm yo'q — avval Node.js o'rnating: https://nodejs.org/"
+}
+
+# ════════════════════════════════════════════════════════════════
+# 9️⃣  DATABASE BACKUP (IXTIYORIY)
+# ════════════════════════════════════════════════════════════════
+
+Write-Step "9/10" "Database backup (ixtiyoriy)"
+
+if (Ask-Yes "Render'dagi database'dan backup olamizmi? (TAVSIYA: HA)" $true) {
+    # pg_dump tekshirish
+    if (Test-Cmd "pg_dump") {
+        $dbUrl = ""
+        if (Test-Path ".env") {
+            $envLines = Get-Content ".env"
+            foreach ($line in $envLines) {
+                if ($line -match "^DATABASE_URL=(.+)$") {
+                    $dbUrl = $matches[1].Trim().Trim('"').Trim("'")
+                    break
+                }
+            }
+        }
+
+        if (-not $dbUrl -or $dbUrl.Length -lt 20) {
+            Write-Warn ".env'da DATABASE_URL bo'sh — backup o'tkazib yuboriladi"
+            Write-Info "Render'dan External Database URL'ni .env'ga qo'shing"
+        } else {
+            $backupDir = Join-Path $CONFIG.Desktop "lady_maryam_backups"
+            if (-not (Test-Path $backupDir)) {
+                New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+            }
+
+            $timestamp = Get-Date -Format "yyyyMMdd_HHmm"
+            $backupFile = Join-Path $backupDir "backup_$timestamp.sql"
+
+            Write-Info "Backup olinmoqda (vaqt olishi mumkin)..."
+            try {
+                pg_dump $dbUrl 2>$null | Out-File -FilePath $backupFile -Encoding UTF8
+                if (Test-Path $backupFile) {
+                    $size = (Get-Item $backupFile).Length
+                    $sizeKb = [Math]::Round($size / 1KB, 1)
+                    Write-Ok "Backup yaratildi: $backupFile ($sizeKb KB)"
+
+                    # Jadvallar sonini ko'rsatish
+                    $tableCount = (Select-String -Path $backupFile -Pattern "^CREATE TABLE" | Measure-Object).Count
+                    Write-Info "Backup'da $tableCount ta jadval bor"
+                } else {
+                    Write-Err "Backup yaratilmadi"
+                }
+            } catch {
+                Write-Err "pg_dump xatosi: $_"
+            }
+        }
+    } else {
+        Write-Warn "pg_dump topilmadi"
+        Write-Info "PostgreSQL client'ni o'rnating: https://www.postgresql.org/download/windows/"
+        Write-Info "O'rnatishda faqat 'Command Line Tools' tanlang"
+    }
+} else {
+    Write-Info "Backup o'tkazib yuborildi (.env'dan qo'lda olishingiz mumkin)"
+}
+
+# ════════════════════════════════════════════════════════════════
+# 🔟  YAKUNIY TEKSHIRUV
+# ════════════════════════════════════════════════════════════════
+
+Write-Step "10/10" "Yakuniy tekshiruv"
+
+$check = @{
+    "Git repo (.git papka)"     = (Test-Path ".git")
+    "Python venv"                = (Test-Path "venv")
+    ".env fayl"                  = (Test-Path ".env")
+    ".gitignore"                 = (Test-Path ".gitignore")
+    "CLAUDE.md"                  = (Test-Path "CLAUDE.md")
+    "Qarzlar spec"               = (Test-Path "_docs\QARZLAR_SPEC.md")
+    "Birinchi vazifa prompt"    = (Test-Path "_docs\BIRINCHI_VAZIFA.md")
+}
+
+$allOk = $true
+foreach ($key in $check.Keys) {
+    if ($check[$key]) {
+        Write-Ok $key
+    } else {
+        Write-Err $key
+        $allOk = $false
+    }
+}
+
+# .env to'ldirilganmi
+$envFilled = $false
+if (Test-Path ".env") {
+    $envText = Get-Content ".env" -Raw
+    if ($envText -match "TELEGRAM_BOT_TOKEN=\S{10,}" -and
+        $envText -match "DATABASE_URL=\S{20,}") {
+        $envFilled = $true
+        Write-Ok ".env to'ldirilgan"
+    } else {
+        Write-Warn ".env bo'sh yoki to'liq emas"
+    }
+}
+
+# ════════════════════════════════════════════════════════════════
+# 🎉 YAKUN
+# ════════════════════════════════════════════════════════════════
+
+Write-Host ""
+Write-Host ""
+Write-Host "  ╔═══════════════════════════════════════════════════════╗" -ForegroundColor Green
+Write-Host "  ║                                                       ║" -ForegroundColor Green
+Write-Host "  ║              " -NoNewline -ForegroundColor Green
+Write-Host "✦  TAYYOR  ✦" -NoNewline -ForegroundColor White
+Write-Host "                          ║" -ForegroundColor Green
+Write-Host "  ║                                                       ║" -ForegroundColor Green
+Write-Host "  ╚═══════════════════════════════════════════════════════╝" -ForegroundColor Green
+Write-Host ""
+Write-Host "  📁 Loyiha papkasi:" -ForegroundColor White
+Write-Host "     $newPath" -ForegroundColor Cyan
+Write-Host ""
+
+if (Test-Path $backupPath) {
+    Write-Host "  📦 Zaxira (xavfsizlik uchun):" -ForegroundColor White
+    Write-Host "     $backupPath" -ForegroundColor Gray
+    Write-Host ""
+}
+
+Write-Host "  ─────────────────────────────────────────────────────────" -ForegroundColor DarkGray
+Write-Host "   KEYINGI QADAMLAR" -ForegroundColor Yellow
+Write-Host "  ─────────────────────────────────────────────────────────" -ForegroundColor DarkGray
+Write-Host ""
+
+$stepNum = 1
+
+if (-not $envFilled) {
+    Write-Host "  $stepNum)" -ForegroundColor Yellow -NoNewline
+    Write-Host " .env faylni Render dashboard'dan to'ldiring:" -ForegroundColor White
+    Write-Cmd "notepad $newPath\.env"
+    Write-Host ""
+    Write-Host "     Render: https://dashboard.render.com" -ForegroundColor DarkGray
+    Write-Host "     lady_maryam → Environment → har bir variable'ni nusxalang" -ForegroundColor DarkGray
+    Write-Host "     DATABASE_URL — muhabbat-db'ning EXTERNAL URL'ini oling" -ForegroundColor DarkGray
+    Write-Host ""
+    $stepNum++
+}
+
+Write-Host "  $stepNum)" -ForegroundColor Yellow -NoNewline
+Write-Host " Loyiha papkasiga o'ting va venv'ni faollashtiring:" -ForegroundColor White
+Write-Cmd "cd $newPath"
+Write-Cmd ".\venv\Scripts\Activate.ps1"
+Write-Host ""
+$stepNum++
+
+if (Test-Cmd "claude") {
+    Write-Host "  $stepNum)" -ForegroundColor Yellow -NoNewline
+    Write-Host " Claude Code'ni ishga tushiring:" -ForegroundColor White
+    Write-Cmd "claude"
+    Write-Host ""
+    $stepNum++
+
+    Write-Host "  $stepNum)" -ForegroundColor Yellow -NoNewline
+    Write-Host " Birinchi xabar sifatida quyidagi matnni yuboring:" -ForegroundColor White
+    Write-Host ""
+    Write-Host "     ┌──────────────────────────────────────────────────┐" -ForegroundColor DarkGray
+    Write-Host "     │ " -NoNewline -ForegroundColor DarkGray
+    Write-Host "CLAUDE.md va _docs/QARZLAR_SPEC.md ni o'qib chiq," -NoNewline -ForegroundColor Cyan
+    Write-Host "  │" -ForegroundColor DarkGray
+    Write-Host "     │ " -NoNewline -ForegroundColor DarkGray
+    Write-Host "loyiha strukturasini tahlil qil, xulosa ber." -NoNewline -ForegroundColor Cyan
+    Write-Host "     │" -ForegroundColor DarkGray
+    Write-Host "     │ " -NoNewline -ForegroundColor DarkGray
+    Write-Host "Keyin birinchi vazifaga o'tamiz: database mig-" -NoNewline -ForegroundColor Cyan
+    Write-Host "    │" -ForegroundColor DarkGray
+    Write-Host "     │ " -NoNewline -ForegroundColor DarkGray
+    Write-Host "ration fayl yaratish (005_create_debts.sql)." -NoNewline -ForegroundColor Cyan
+    Write-Host "      │" -ForegroundColor DarkGray
+    Write-Host "     └──────────────────────────────────────────────────┘" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "     Yoki to'liq matn — " -NoNewline -ForegroundColor DarkGray
+    Write-Host "_docs\BIRINCHI_VAZIFA.md" -ForegroundColor Cyan
+} else {
+    Write-Host "  $stepNum)" -ForegroundColor Yellow -NoNewline
+    Write-Host " Claude Code'ni o'rnating:" -ForegroundColor White
+    Write-Cmd "npm install -g @anthropic-ai/claude-code"
+    Write-Host ""
+    Write-Host "     Keyin: " -NoNewline -ForegroundColor DarkGray
+    Write-Host "claude" -ForegroundColor DarkCyan
+}
+
+Write-Host ""
+Write-Host "  ─────────────────────────────────────────────────────────" -ForegroundColor DarkGray
+Write-Host ""
+Write-Host "  📚 FOYDALI BUYRUQLAR:" -ForegroundColor White
+Write-Host ""
+Write-Host "     Loyihaga kirish:        " -NoNewline -ForegroundColor Gray
+Write-Cmd "cd $newPath"
+
+Write-Host "     venv faollashtirish:    " -NoNewline -ForegroundColor Gray
+Write-Cmd ".\venv\Scripts\Activate.ps1"
+
+Write-Host "     VS Code'da ochish:      " -NoNewline -ForegroundColor Gray
+Write-Cmd "code ."
+
+Write-Host "     Git status:             " -NoNewline -ForegroundColor Gray
+Write-Cmd "git status"
+
+Write-Host "     GitHub'dan yangilash:   " -NoNewline -ForegroundColor Gray
+Write-Cmd "git pull origin main"
+
+Write-Host "     Claude Code:            " -NoNewline -ForegroundColor Gray
+Write-Cmd "claude"
+Write-Host ""
+
+Write-Host "  ─────────────────────────────────────────────────────────" -ForegroundColor DarkGray
+Write-Host "  ⚠️  MUHIM ESLATMA" -ForegroundColor Red
+Write-Host "  ─────────────────────────────────────────────────────────" -ForegroundColor DarkGray
+Write-Host ""
+Write-Host "  • Database backup avval, push keyin — har doim shu tartibda" -ForegroundColor White
+Write-Host "  • .env hech qachon GitHub'ga ketmaydi (.gitignore'da)" -ForegroundColor White
+Write-Host "  • DROP TABLE va TRUNCATE — taqiqlanadi" -ForegroundColor White
+Write-Host "  • Local'da test qiling, keyin push" -ForegroundColor White
+Write-Host "  • Render avtomatik deploy qiladi (2-5 daqiqa)" -ForegroundColor White
+Write-Host ""
+
+Write-Host ""
+Write-Host "  ╭───────────────────────────────────────────────────────╮" -ForegroundColor Magenta
+Write-Host "  │  Omad, Husniddin! 🌸                                  │" -ForegroundColor Magenta
+Write-Host "  ╰───────────────────────────────────────────────────────╯" -ForegroundColor Magenta
+Write-Host ""
+
+# Loyihani VS Code'da ochishni so'rash
+if (Test-Cmd "code") {
+    if (Ask-Yes "VS Code'da loyihani ochishni xohlaysizmi?") {
+        Start-Process "code" -ArgumentList "." -NoNewWindow
+        Write-Info "VS Code ochilmoqda..."
+    }
+}
+
+Write-Host ""
