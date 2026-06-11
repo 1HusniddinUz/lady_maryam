@@ -204,9 +204,10 @@ def reports_menu_kb() -> InlineKeyboardMarkup:
     kb.button(text="📊 Butun davr", callback_data="rp:p:all")
     kb.button(text="🏆 TOP mahsulotlar", callback_data="rp:top:products")
     kb.button(text="👥 TOP mijozlar", callback_data="rp:top:customers")
+    kb.button(text="📒 Qarzlar hisoboti", callback_data="rp:debts")
     kb.button(text="🏪 Ombor qiymati", callback_data="wh:value")
     kb.button(text="🔙 Orqaga", callback_data="ap:menu")
-    kb.adjust(2, 2, 1, 2, 1, 1)
+    kb.adjust(2, 2, 1, 2, 1, 1, 1)
     return kb.as_markup()
 
 

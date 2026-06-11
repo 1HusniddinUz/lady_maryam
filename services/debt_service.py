@@ -184,6 +184,79 @@ async def get_debt_stats(session: AsyncSession) -> dict:
     }
 
 
+async def debts_report(session: AsyncSession) -> dict:
+    """Hisobotlar bo'limi uchun to'liq qarz analitikasi."""
+    today = date.today()
+
+    # Umumiy summalar (barcha qarzlar)
+    total_given = (await session.execute(
+        select(func.coalesce(func.sum(Debt.total_amount), 0.0))
+    )).scalar() or 0.0
+    total_collected = (await session.execute(
+        select(func.coalesce(func.sum(Debt.paid_amount), 0.0))
+    )).scalar() or 0.0
+    total_count = (await session.execute(
+        select(func.count(Debt.id))
+    )).scalar() or 0
+
+    # Faol (muddati kelmagan)
+    active_sum = (await session.execute(
+        select(func.coalesce(func.sum(Debt.total_amount - Debt.paid_amount), 0.0))
+        .where(Debt.status == DebtStatus.ACTIVE, Debt.due_date >= today)
+    )).scalar() or 0.0
+    active_count = (await session.execute(
+        select(func.count(Debt.id))
+        .where(Debt.status == DebtStatus.ACTIVE, Debt.due_date >= today)
+    )).scalar() or 0
+
+    # Muddati o'tgan
+    overdue_sum = (await session.execute(
+        select(func.coalesce(func.sum(Debt.total_amount - Debt.paid_amount), 0.0))
+        .where(Debt.status == DebtStatus.ACTIVE, Debt.due_date < today)
+    )).scalar() or 0.0
+    overdue_count = (await session.execute(
+        select(func.count(Debt.id))
+        .where(Debt.status == DebtStatus.ACTIVE, Debt.due_date < today)
+    )).scalar() or 0
+
+    paid_count = (await session.execute(
+        select(func.count(Debt.id)).where(Debt.status == DebtStatus.PAID)
+    )).scalar() or 0
+
+    # Eng katta qarzdorlar (faol, qoldiq bo'yicha)
+    top_stmt = (
+        select(Debt)
+        .where(Debt.status == DebtStatus.ACTIVE)
+        .order_by((Debt.total_amount - Debt.paid_amount).desc())
+        .limit(5)
+    )
+    top_debtors = [
+        {
+            "name": d.customer_name,
+            "phone": d.customer_phone,
+            "outstanding": outstanding(d),
+            "due_date": d.due_date,
+            "days": days_until_due(d, today),
+            "overdue": d.due_date < today,
+        }
+        for d in (await session.execute(top_stmt)).scalars().all()
+    ]
+
+    return {
+        "total_given": float(total_given),
+        "total_collected": float(total_collected),
+        "total_outstanding": float(active_sum + overdue_sum),
+        "total_count": int(total_count),
+        "active_sum": float(active_sum),
+        "active_count": int(active_count),
+        "overdue_sum": float(overdue_sum),
+        "overdue_count": int(overdue_count),
+        "paid_count": int(paid_count),
+        "collection_pct": (float(total_collected) / float(total_given) * 100) if total_given else 0.0,
+        "top_debtors": top_debtors,
+    }
+
+
 # ─── SCHEDULER YORDAMCHILARI ──────────────────────────────────────────
 
 async def get_due_debts(session: AsyncSession, today: Optional[date] = None) -> List[Debt]:

@@ -14,9 +14,10 @@ from services.export_service import (
     export_sales_report_excel, make_sales_chart, make_top_products_chart
 )
 from services.settings_service import get_tax_name
+from services.debt_service import debts_report
 from keyboards.admin_kb import reports_menu_kb, report_period_actions_kb
 from handlers.filters import IsAdmin
-from utils.formatters import fmt_money, profit_arrow
+from utils.formatters import fmt_money, fmt_date, profit_arrow
 
 
 router = Router(name="admin_reports")
@@ -153,6 +154,48 @@ async def top_products_view(call: CallbackQuery) -> None:
         BufferedInputFile(chart_bytes, filename="top_products.png"),
         caption=f"📊 TOP-10 mahsulotlar grafigi"
     )
+    await call.answer()
+
+
+# ─── QARZLAR HISOBOTI ─────────────────────────────────────────────────
+
+@router.callback_query(F.data == "rp:debts")
+async def debts_report_view(call: CallbackQuery) -> None:
+    async with get_session() as session:
+        r = await debts_report(session)
+
+    if r["total_count"] == 0:
+        await call.answer("📒 Hali qarzlar yo'q", show_alert=True)
+        return
+
+    text = (
+        f"📒 <b>Qarzlar hisoboti</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"💳 Berilgan (jami): <b>{fmt_money(r['total_given'])}</b>\n"
+        f"✅ Yig'ib olingan: <b>{fmt_money(r['total_collected'])}</b>\n"
+        f"   Qaytarilish: {r['collection_pct']:.1f}%\n"
+        f"🔴 Qoldiq (olinmagan): <b>{fmt_money(r['total_outstanding'])}</b>\n\n"
+        f"📊 <b>Holat bo'yicha:</b>\n"
+        f"🟡 Faol: {r['active_count']} ta — {fmt_money(r['active_sum'])}\n"
+        f"🔴 Muddati o'tgan: {r['overdue_count']} ta — {fmt_money(r['overdue_sum'])}\n"
+        f"🟢 To'langan: {r['paid_count']} ta\n"
+    )
+
+    if r["top_debtors"]:
+        text += "\n👤 <b>Eng katta qarzdorlar:</b>\n"
+        for i, d in enumerate(r["top_debtors"], 1):
+            if d["overdue"]:
+                due_mark = f"🔴 {abs(d['days'])} kun o'tgan"
+            elif d["days"] == 0:
+                due_mark = "⏰ bugun"
+            else:
+                due_mark = f"{d['days']} kun qoldi"
+            text += (
+                f"{i}. <b>{d['name']}</b> — {fmt_money(d['outstanding'])}\n"
+                f"   📅 {fmt_date(d['due_date'])} • {due_mark}\n"
+            )
+
+    await call.message.answer(text, reply_markup=reports_menu_kb())
     await call.answer()
 
 
