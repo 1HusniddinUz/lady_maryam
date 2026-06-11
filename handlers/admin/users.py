@@ -8,15 +8,18 @@ from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
+from config.settings import settings
 from database.engine import get_session
+from database.models import UserRole
 from services.user_service import (
-    get_all_users, count_users, block_user, get_user_by_tg_id
+    get_all_users, count_users, block_user, get_user_by_tg_id,
+    get_user_by_username, is_superadmin, set_admin,
 )
 from keyboards.admin_kb import (
-    users_menu_kb, user_actions_kb, admin_main_kb, cancel_kb
+    users_menu_kb, user_actions_kb, admin_main_kb, cancel_kb, admins_manage_kb
 )
 from handlers.filters import IsAdmin
-from handlers.states import Broadcast
+from handlers.states import Broadcast, AddAdmin
 from utils.formatters import fmt_datetime
 
 
@@ -25,19 +28,36 @@ router.message.filter(IsAdmin())
 router.callback_query.filter(IsAdmin())
 
 
-@router.message(F.text == "👥 Foydalanuvchilar")
-async def users_main(message: Message) -> None:
-    async with get_session() as session:
-        stats = await count_users(session)
-
-    text = (
+def _users_menu_text(stats: dict) -> str:
+    return (
         f"👥 <b>Foydalanuvchilar</b>\n\n"
         f"📊 Jami: <b>{stats['total']}</b>\n"
         f"🛡 Adminlar: {stats['admins']}\n"
         f"🛒 Mijozlar: {stats['customers']}\n"
         f"🚫 Bloklangan: {stats['blocked']}"
     )
-    await message.answer(text, reply_markup=users_menu_kb())
+
+
+@router.message(F.text == "👥 Foydalanuvchilar")
+async def users_main(message: Message) -> None:
+    async with get_session() as session:
+        stats = await count_users(session)
+    await message.answer(
+        _users_menu_text(stats),
+        reply_markup=users_menu_kb(is_super=is_superadmin(message.from_user.id)),
+    )
+
+
+@router.callback_query(F.data == "us:menu")
+async def users_menu_cb(call: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    async with get_session() as session:
+        stats = await count_users(session)
+    await call.message.answer(
+        _users_menu_text(stats),
+        reply_markup=users_menu_kb(is_super=is_superadmin(call.from_user.id)),
+    )
+    await call.answer()
 
 
 @router.callback_query(F.data == "us:list")
@@ -78,6 +98,107 @@ async def unblock_user_cb(call: CallbackQuery) -> None:
     async with get_session() as session:
         await block_user(session, tid, blocked=False)
     await call.answer("✅ Blokdan chiqarildi", show_alert=True)
+
+
+# ─── ADMINLARNI BOSHQARISH (faqat superadmin) ─────────────────────────
+
+async def _show_admins(target) -> None:
+    """target: Message yoki CallbackQuery.message — adminlar ro'yxatini ko'rsatadi."""
+    async with get_session() as session:
+        users = await get_all_users(session)
+    admins = [
+        u for u in users
+        if u.telegram_id in settings.admin_ids or u.role == UserRole.ADMIN
+    ]
+    await target.answer(
+        f"🛡 <b>Adminlar</b> ({len(admins)} ta)\n\n"
+        f"👑 — superadmin (himoyalangan)\n"
+        f"⬇️ — adminlikdan olib tashlash",
+        reply_markup=admins_manage_kb(admins, settings.superadmin_id),
+    )
+
+
+@router.callback_query(F.data == "us:admins")
+async def admins_list(call: CallbackQuery) -> None:
+    if not is_superadmin(call.from_user.id):
+        await call.answer("🚫 Faqat superadmin uchun", show_alert=True)
+        return
+    await _show_admins(call.message)
+    await call.answer()
+
+
+@router.callback_query(F.data == "us:addadmin")
+async def add_admin_start(call: CallbackQuery, state: FSMContext) -> None:
+    if not is_superadmin(call.from_user.id):
+        await call.answer("🚫 Faqat superadmin uchun", show_alert=True)
+        return
+    await state.set_state(AddAdmin.identifier)
+    await call.message.answer(
+        "➕ <b>Admin qo'shish</b>\n\n"
+        "Foydalanuvchining <b>@username</b> yoki <b>Telegram ID</b> sini yuboring.\n"
+        "<i>(Foydalanuvchi avval botni /start qilgan bo'lishi kerak.)</i>",
+        reply_markup=cancel_kb(),
+    )
+    await call.answer()
+
+
+@router.message(AddAdmin.identifier, F.text)
+async def add_admin_apply(message: Message, state: FSMContext) -> None:
+    if message.text.startswith("❌"):
+        await state.clear()
+        await message.answer("❌ Bekor qilindi.", reply_markup=admin_main_kb())
+        return
+    if not is_superadmin(message.from_user.id):
+        await state.clear()
+        return
+
+    raw = message.text.strip()
+    await state.clear()
+
+    async with get_session() as session:
+        if raw.lstrip("@").isdigit():
+            user = await get_user_by_tg_id(session, int(raw.lstrip("@")))
+        else:
+            user = await get_user_by_username(session, raw)
+
+        if not user:
+            await message.answer(
+                "❌ Foydalanuvchi topilmadi.\n"
+                "U avval botni <b>/start</b> qilishi kerak, keyin qayta urinib ko'ring.",
+                reply_markup=admin_main_kb(),
+            )
+            return
+
+        await set_admin(session, user.telegram_id, True)
+
+    await message.answer(
+        f"✅ <b>{user.full_name}</b> endi admin!\n🆔 <code>{user.telegram_id}</code>",
+        reply_markup=admin_main_kb(),
+    )
+
+
+@router.callback_query(F.data.startswith("us:rmadmin:"))
+async def remove_admin(call: CallbackQuery) -> None:
+    if not is_superadmin(call.from_user.id):
+        await call.answer("🚫 Faqat superadmin uchun", show_alert=True)
+        return
+    tid = int(call.data.split(":")[2])
+
+    if is_superadmin(tid):
+        await call.answer("👑 Superadminni o'zgartirib bo'lmaydi", show_alert=True)
+        return
+    if tid in settings.admin_ids:
+        await call.answer(
+            "⚙️ Bu admin .env (ADMIN_IDS) orqali belgilangan. "
+            "Olib tashlash uchun Render env'dan o'chiring.",
+            show_alert=True,
+        )
+        return
+
+    async with get_session() as session:
+        await set_admin(session, tid, False)
+    await call.answer("✅ Adminlikdan olib tashlandi", show_alert=True)
+    await _show_admins(call.message)
 
 
 # ─── BROADCAST ────────────────────────────────────────────────────────

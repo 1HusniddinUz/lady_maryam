@@ -4,7 +4,7 @@ Bot konfiguratsiyasi - .env fayldan yoki env variable'lardan o'qiladi
 
 import os
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -14,6 +14,7 @@ load_dotenv()
 class Settings:
     bot_token: str
     admin_ids: List[int]
+    superadmin_id: Optional[int] = None
     db_path: str = "erp.db"
     old_db_path: str = "savdo.db"
     database_url: str = ""   # PostgreSQL URL (Render production)
@@ -59,6 +60,19 @@ def _load_settings() -> Settings:
     token = os.getenv("BOT_TOKEN", "").strip()
     admin_ids = _parse_admin_ids(os.getenv("ADMIN_IDS", ""))
 
+    # Superadmin — env'dan o'qiladi (ixtiyoriy)
+    superadmin_id = None
+    raw_super = os.getenv("SUPERADMIN_ID", "").strip()
+    if raw_super:
+        try:
+            superadmin_id = int(raw_super)
+        except ValueError:
+            superadmin_id = None
+
+    # Superadmin doimo to'liq admin — admin_ids ichiga qo'shiladi
+    if superadmin_id and superadmin_id not in admin_ids:
+        admin_ids.append(superadmin_id)
+
     if not token:
         raise ValueError(
             "❌ BOT_TOKEN topilmadi! .env faylida BOT_TOKEN=... yozing"
@@ -71,6 +85,7 @@ def _load_settings() -> Settings:
     return Settings(
         bot_token=token,
         admin_ids=admin_ids,
+        superadmin_id=superadmin_id,
         db_path=os.getenv("DB_PATH", "erp.db"),
         old_db_path=os.getenv("OLD_DB_PATH", "savdo.db"),
         database_url=os.getenv("DATABASE_URL", ""),

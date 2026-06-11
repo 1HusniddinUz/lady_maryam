@@ -69,6 +69,9 @@ async def get_all_users(session: AsyncSession, only_customers: bool = False) -> 
 
 
 async def block_user(session: AsyncSession, telegram_id: int, blocked: bool = True) -> bool:
+    # Superadminni hech qachon bloklab bo'lmaydi (himoyalangan owner)
+    if blocked and is_superadmin(telegram_id):
+        return False
     user = await get_user_by_tg_id(session, telegram_id)
     if user:
         user.is_blocked = blocked
@@ -87,6 +90,25 @@ async def is_admin(session: AsyncSession, telegram_id: int) -> bool:
         return True
     user = await get_user_by_tg_id(session, telegram_id)
     return bool(user and user.role == UserRole.ADMIN)
+
+
+def is_superadmin(telegram_id: int) -> bool:
+    """Superadmin (owner) — env SUPERADMIN_ID orqali belgilanadi."""
+    return settings.superadmin_id is not None and telegram_id == settings.superadmin_id
+
+
+async def set_admin(session: AsyncSession, telegram_id: int, make_admin: bool) -> bool:
+    """
+    Foydalanuvchi rolini ADMIN/CUSTOMER qiladi.
+    Superadminni o'zgartirib bo'lmaydi (doimo admin). Foydalanuvchi topilmasa False.
+    """
+    if is_superadmin(telegram_id):
+        return False
+    user = await get_user_by_tg_id(session, telegram_id)
+    if not user:
+        return False
+    user.role = UserRole.ADMIN if make_admin else UserRole.CUSTOMER
+    return True
 
 
 async def count_users(session: AsyncSession) -> dict:

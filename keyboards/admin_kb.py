@@ -248,12 +248,33 @@ def expense_category_kb() -> InlineKeyboardMarkup:
 
 # ─── FOYDALANUVCHILAR ────────────────────────────────────────────────
 
-def users_menu_kb() -> InlineKeyboardMarkup:
+def users_menu_kb(is_super: bool = False) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text="📋 Mijozlar ro'yxati", callback_data="us:list")
     kb.button(text="📢 Ommaviy xabar", callback_data="us:broadcast")
+    if is_super:
+        kb.button(text="🛡 Adminlar", callback_data="us:admins")
     kb.button(text="🔙 Orqaga", callback_data="ap:menu")
     kb.adjust(1)
+    return kb.as_markup()
+
+
+def admins_manage_kb(admins: list, superadmin_id: int | None) -> InlineKeyboardMarkup:
+    """Superadmin uchun: adminlar ro'yxati + boshqaruv tugmalari."""
+    kb = InlineKeyboardBuilder()
+    for u in admins:
+        if u.telegram_id == superadmin_id:
+            kb.row(InlineKeyboardButton(
+                text=f"👑 {truncate(u.full_name, 24)} (owner)",
+                callback_data="noop",
+            ))
+        else:
+            kb.row(
+                InlineKeyboardButton(text=f"🛡 {truncate(u.full_name, 18)}", callback_data="noop"),
+                InlineKeyboardButton(text="⬇️ Olib tashlash", callback_data=f"us:rmadmin:{u.telegram_id}"),
+            )
+    kb.row(InlineKeyboardButton(text="➕ Admin qo'shish", callback_data="us:addadmin"))
+    kb.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="us:menu"))
     return kb.as_markup()
 
 

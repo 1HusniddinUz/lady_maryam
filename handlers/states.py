@@ -79,3 +79,7 @@ class AddDebt(StatesGroup):
 
 class DebtPayment(StatesGroup):
     amount = State()
+
+
+class AddAdmin(StatesGroup):
+    identifier = State()   # @username yoki raqamli telegram_id
