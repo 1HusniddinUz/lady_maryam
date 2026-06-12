@@ -20,6 +20,7 @@ from database.engine import init_db, migrate_old_data
 from handlers import register_all_handlers
 from utils.logger import setup_logging
 from utils.scheduler import reminder_scheduler_task
+from utils.message_cleanup import cleanup_outgoing, DeleteIncomingMiddleware
 from api import register_api_routes
 
 
@@ -182,7 +183,11 @@ async def main() -> None:
         token=settings.bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
+    # 🧹 Chatni toza saqlash: eski xabarlar avtomatik o'chib boradi
+    bot.session.middleware(cleanup_outgoing)
+
     dp = Dispatcher(storage=MemoryStorage())
+    dp.message.outer_middleware(DeleteIncomingMiddleware())
     register_all_handlers(dp)
     dp.startup.register(on_startup)
 
