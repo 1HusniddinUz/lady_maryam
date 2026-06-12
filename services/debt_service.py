@@ -257,6 +257,42 @@ async def debts_report(session: AsyncSession) -> dict:
     }
 
 
+async def debts_export_data(session: AsyncSession) -> dict:
+    """Excel eksport uchun: umumiy statistika + barcha qarzlarning to'liq ro'yxati."""
+    report = await debts_report(session)
+    today = date.today()
+
+    debts = await list_debts(session, "all")
+    rows = []
+    for d in debts:
+        is_paid = d.status == DebtStatus.PAID
+        overdue = (not is_paid) and d.due_date < today
+        if is_paid:
+            status_label = "🟢 To'langan"
+        elif overdue:
+            status_label = "🔴 Muddati o'tgan"
+        else:
+            status_label = "🟡 Faol"
+
+        rows.append({
+            "name": d.customer_name,
+            "phone": d.customer_phone or "—",
+            "telegram": ("@" + d.customer_telegram) if d.customer_telegram else "—",
+            "total": float(d.total_amount),
+            "paid": float(d.paid_amount),
+            "outstanding": outstanding(d),
+            "taken_date": d.taken_date,
+            "due_date": d.due_date,
+            "days": days_until_due(d, today),
+            "overdue": overdue,
+            "status_label": status_label,
+            "notes": d.notes or "",
+        })
+
+    report["debts"] = rows
+    return report
+
+
 # ─── SCHEDULER YORDAMCHILARI ──────────────────────────────────────────
 
 async def get_due_debts(session: AsyncSession, today: Optional[date] = None) -> List[Debt]:

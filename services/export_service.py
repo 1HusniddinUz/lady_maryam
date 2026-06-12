@@ -45,12 +45,113 @@ def _autosize(ws):
         ws.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 3, 50)
 
 
+def _fmt_d(d) -> str:
+    """date/datetime -> 'dd.mm.yyyy' (bo'sh bo'lsa '—')"""
+    if d is None:
+        return "—"
+    try:
+        return d.strftime("%d.%m.%Y")
+    except Exception:
+        return str(d)
+
+
+def _build_debts_sheet(ws, debts_data: dict) -> None:
+    """Berilgan varaqqa qarzlar hisobotini (statistika + to'liq jadval) chizadi."""
+    money_fmt = '#,##0 "so\'m"'
+    overdue_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+    paid_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+
+    ws["A1"] = "Qarzlar hisoboti"
+    ws["A1"].font = Font(bold=True, size=16)
+    ws.merge_cells("A1:E1")
+
+    # ── Umumiy statistika ──
+    stat_rows = [
+        ("Ko'rsatkich", "Qiymat"),
+        ("Berilgan qarzlar (jami)", debts_data.get("total_given", 0)),
+        ("Yig'ib olingan", debts_data.get("total_collected", 0)),
+        ("Qaytarilish darajasi", f"{debts_data.get('collection_pct', 0):.1f}%"),
+        ("Qoldiq (olinmagan)", debts_data.get("total_outstanding", 0)),
+        ("🟡 Faol qarzlar", f"{debts_data.get('active_count', 0)} ta"),
+        ("   — summasi", debts_data.get("active_sum", 0)),
+        ("🔴 Muddati o'tgan", f"{debts_data.get('overdue_count', 0)} ta"),
+        ("   — summasi", debts_data.get("overdue_sum", 0)),
+        ("🟢 To'langan", f"{debts_data.get('paid_count', 0)} ta"),
+    ]
+    start = 3
+    for i, (label, value) in enumerate(stat_rows):
+        ws.cell(row=start + i, column=1, value=label).border = THIN_BORDER
+        c = ws.cell(row=start + i, column=2, value=value)
+        c.border = THIN_BORDER
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            c.number_format = money_fmt
+    _style_header_row(ws, start, 2)
+    # Qoldiq qatorini ajratish (qizg'ish)
+    out_row = start + 4
+    for col in (1, 2):
+        ws.cell(row=out_row, column=col).fill = overdue_fill
+        ws.cell(row=out_row, column=col).font = Font(bold=True)
+
+    # ── To'liq qarzlar ro'yxati ──
+    debts = debts_data.get("debts", [])
+    table_start = start + len(stat_rows) + 2  # statistikadan keyin bo'sh qator
+    ws.cell(row=table_start - 1, column=1, value="Barcha qarzlar").font = Font(bold=True, size=13)
+
+    headers = [
+        "№", "Mijoz", "Telefon", "Telegram", "Olingan",
+        "Muddat", "Jami qarz", "To'langan", "Qoldiq", "Holat", "Izoh",
+    ]
+    for i, h in enumerate(headers, 1):
+        ws.cell(row=table_start, column=i, value=h)
+    _style_header_row(ws, table_start, len(headers))
+
+    for idx, d in enumerate(debts, 1):
+        r = table_start + idx
+        ws.cell(row=r, column=1, value=idx)
+        ws.cell(row=r, column=2, value=d["name"])
+        ws.cell(row=r, column=3, value=d["phone"])
+        ws.cell(row=r, column=4, value=d["telegram"])
+        ws.cell(row=r, column=5, value=_fmt_d(d["taken_date"]))
+        ws.cell(row=r, column=6, value=_fmt_d(d["due_date"]))
+        ws.cell(row=r, column=7, value=d["total"]).number_format = money_fmt
+        ws.cell(row=r, column=8, value=d["paid"]).number_format = money_fmt
+        ws.cell(row=r, column=9, value=d["outstanding"]).number_format = money_fmt
+        ws.cell(row=r, column=10, value=d["status_label"])
+        ws.cell(row=r, column=11, value=d["notes"])
+        for col in range(1, len(headers) + 1):
+            ws.cell(row=r, column=col).border = THIN_BORDER
+        # Qatorni holatига qarab bo'yash
+        if d["status_label"].startswith("🔴"):
+            for col in range(1, len(headers) + 1):
+                ws.cell(row=r, column=col).fill = overdue_fill
+        elif d["status_label"].startswith("🟢"):
+            for col in range(1, len(headers) + 1):
+                ws.cell(row=r, column=col).fill = paid_fill
+
+    if not debts:
+        ws.cell(row=table_start + 1, column=1, value="Hali qarzlar yo'q").font = Font(italic=True, color="888888")
+
+    _autosize(ws)
+
+
+def export_debts_excel(debts_data: dict) -> bytes:
+    """Faqat qarzlar bo'yicha alohida Excel hisobot."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Qarzlar"
+    _build_debts_sheet(ws, debts_data)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def export_sales_report_excel(
     summary: dict,
     top_products_list: List[dict],
     top_customers_list: List[dict],
     daily_data: List[dict],
     period_name: str,
+    debts_data: dict | None = None,
 ) -> bytes:
     """Sotuv hisobotini Excel formatida"""
     wb = Workbook()
@@ -157,6 +258,11 @@ def export_sales_report_excel(
         for col in range(1, 5):
             ws4.cell(row=3 + idx, column=col).border = THIN_BORDER
     _autosize(ws4)
+
+    # ── 5-list: Qarzlar (agar ma'lumot berilgan bo'lsa) ──
+    if debts_data is not None:
+        ws5 = wb.create_sheet("Qarzlar")
+        _build_debts_sheet(ws5, debts_data)
 
     buf = io.BytesIO()
     wb.save(buf)

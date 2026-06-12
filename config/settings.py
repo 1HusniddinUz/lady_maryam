@@ -73,6 +73,12 @@ def _load_settings() -> Settings:
     if superadmin_id and superadmin_id not in admin_ids:
         admin_ids.append(superadmin_id)
 
+    # Fallback: SUPERADMIN_ID berilmagan bo'lsa — birinchi admin superadmin bo'ladi.
+    # Shunda env to'liq sozlanmagan bo'lsa ham (masalan Render'da) "Adminlar"
+    # bo'limi baribir ishlaydi va do'kon hech qachon superadminsiz qolmaydi.
+    if superadmin_id is None and admin_ids:
+        superadmin_id = admin_ids[0]
+
     if not token:
         raise ValueError(
             "❌ BOT_TOKEN topilmadi! .env faylida BOT_TOKEN=... yozing"

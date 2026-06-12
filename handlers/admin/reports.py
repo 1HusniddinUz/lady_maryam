@@ -3,7 +3,9 @@ Admin: Hisobotlar va analitika
 """
 
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, BufferedInputFile
+from aiogram.types import (
+    Message, CallbackQuery, BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton
+)
 
 from database.engine import get_session
 from services.report_service import (
@@ -11,10 +13,11 @@ from services.report_service import (
     daily_sales_chart_data, get_period_range
 )
 from services.export_service import (
-    export_sales_report_excel, make_sales_chart, make_top_products_chart
+    export_sales_report_excel, make_sales_chart, make_top_products_chart,
+    export_debts_excel,
 )
 from services.settings_service import get_tax_name
-from services.debt_service import debts_report
+from services.debt_service import debts_report, debts_export_data
 from keyboards.admin_kb import reports_menu_kb, report_period_actions_kb
 from handlers.filters import IsAdmin
 from utils.formatters import fmt_money, fmt_date, profit_arrow
@@ -91,6 +94,7 @@ async def report_excel(call: CallbackQuery) -> None:
         top_p = await top_products(session, start, end, limit=10)
         top_c = await top_customers(session, start, end, limit=10)
         daily = await daily_sales_chart_data(session, days=30)
+        debts_data = await debts_export_data(session)
 
     excel_bytes = export_sales_report_excel(
         summary=summary,
@@ -98,6 +102,7 @@ async def report_excel(call: CallbackQuery) -> None:
         top_customers_list=top_c,
         daily_data=daily,
         period_name=label,
+        debts_data=debts_data,
     )
 
     filename = f"hisobot_{period}.xlsx"
@@ -195,8 +200,30 @@ async def debts_report_view(call: CallbackQuery) -> None:
                 f"   📅 {fmt_date(d['due_date'])} • {due_mark}\n"
             )
 
-    await call.message.answer(text, reply_markup=reports_menu_kb())
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📊 Excel (qarzlar)", callback_data="rp:debts:excel")],
+        [InlineKeyboardButton(text="🔙 Hisobotlar", callback_data="rp:menu")],
+    ])
+    await call.message.answer(text, reply_markup=kb)
     await call.answer()
+
+
+@router.callback_query(F.data == "rp:debts:excel")
+async def debts_excel(call: CallbackQuery) -> None:
+    await call.answer("⏳ Excel tayyorlanmoqda...")
+
+    async with get_session() as session:
+        debts_data = await debts_export_data(session)
+
+    if not debts_data.get("debts"):
+        await call.answer("📒 Hali qarzlar yo'q", show_alert=True)
+        return
+
+    excel_bytes = export_debts_excel(debts_data)
+    await call.message.answer_document(
+        BufferedInputFile(excel_bytes, filename="qarzlar_hisoboti.xlsx"),
+        caption="📒 Qarzlar hisoboti (Excel)",
+    )
 
 
 # ─── TOP MIJOZLAR ─────────────────────────────────────────────────────
