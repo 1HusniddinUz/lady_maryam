@@ -132,6 +132,7 @@ async function navigate(view, params = null, options = {}) {
       case 'orders':   await renderOrders(viewEl); break;
       case 'wishlist': await renderWishlist(viewEl); break;
       case 'qarzlar':  await renderQarzlar(viewEl); break;
+      case 'hisobot':  await renderHisobot(viewEl); break;
       default: viewEl.innerHTML = '<div class="empty-state"><p>Sahifa topilmadi</p></div>';
     }
   } catch (err) {
@@ -260,10 +261,20 @@ async function renderHome(viewEl) {
     </footer>
   `;
 
-  // Admin uchun — Qarzlar tile (faqat adminlarga ko'rinadi)
+  // Admin uchun — Hisobotlar va Qarzlar tile'lari (faqat adminlarga ko'rinadi)
   if (state.isAdmin) {
     const tiles = viewEl.querySelector('.nav-tiles');
     if (tiles) {
+      const reportTile = document.createElement('button');
+      reportTile.className = 'nav-tile nav-tile-admin';
+      reportTile.dataset.nav = 'hisobot';
+      reportTile.innerHTML = `
+        <span class="nav-tile-icon">📊</span>
+        <span class="nav-tile-title">Hisobotlar</span>
+        <span class="nav-tile-meta">Admin · sotuv + qarzlar</span>
+        <span class="nav-tile-arrow">→</span>`;
+      tiles.appendChild(reportTile);
+
       const tile = document.createElement('button');
       tile.className = 'nav-tile nav-tile-admin';
       tile.dataset.nav = 'qarzlar';
@@ -698,6 +709,103 @@ async function renderWishlist(viewEl) {
     document.getElementById('wishlist-grid').innerHTML = `
       <div class="empty-state"><p>${escHtml(err.message)}</p></div>
     `;
+  }
+}
+
+
+// ════════════════════════════════════════════════════════════════
+// VIEW: HISOBOTLAR (admin)
+// ════════════════════════════════════════════════════════════════
+const hisobotState = { period: 'month' };
+
+const REPORT_PERIODS = [
+  { key: 'today', label: 'Bugun' },
+  { key: 'week',  label: 'Hafta' },
+  { key: 'month', label: 'Bu oy' },
+  { key: 'all',   label: 'Butun davr' },
+];
+
+async function renderHisobot(viewEl) {
+  if (!state.isAdmin) {
+    viewEl.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🔒</div><h3 class="empty-state-title">Ruxsat yo'q</h3><p class="empty-state-text">Bu bo'lim faqat adminlar uchun.</p></div>`;
+    return;
+  }
+
+  viewEl.innerHTML = `
+    <div class="view-page">
+      <div class="page-head">
+        <h1 class="page-title">Hisobotlar</h1>
+        <p class="page-sub">Sotuv va qarzlar tahlili</p>
+      </div>
+      <div id="report-periods" class="filter-row"></div>
+      <div id="report-body">
+        <div class="product-skeleton" style="aspect-ratio:auto;height:120px;"></div>
+        <div class="product-skeleton" style="aspect-ratio:auto;height:120px;"></div>
+      </div>
+    </div>
+  `;
+
+  const pr = viewEl.querySelector('#report-periods');
+  REPORT_PERIODS.forEach(p => {
+    const chip = document.createElement('button');
+    chip.className = 'filter-chip' + (p.key === hisobotState.period ? ' active' : '');
+    chip.textContent = p.label;
+    chip.addEventListener('click', () => {
+      hisobotState.period = p.key;
+      pr.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      haptic.light();
+      loadReport();
+    });
+    pr.appendChild(chip);
+  });
+
+  loadReport();
+}
+
+async function loadReport() {
+  const body = document.getElementById('report-body');
+  if (!body) return;
+  try {
+    const data = await API.get('/api/admin/report?period=' + hisobotState.period);
+    const s = data.summary;
+    const d = data.debts;
+
+    const debtsBlock = (d && d.total_count > 0) ? `
+      <div class="report-section">
+        <h3 class="report-section-title">📒 Qarzlar (joriy holat)</h3>
+        <div class="debt-stats">
+          <div class="debt-stat"><span class="debt-stat-label">Qoldiq jami</span><strong class="debt-stat-red">${fmtMoney(d.total_outstanding)}</strong></div>
+          <div class="debt-stat"><span class="debt-stat-label">Berilgan</span><strong>${fmtMoney(d.total_given)}</strong></div>
+          <div class="debt-stat"><span class="debt-stat-label">Yig'ib olingan</span><strong>${fmtMoney(d.total_collected)}</strong></div>
+          <div class="debt-stat"><span class="debt-stat-label">Qaytarilish</span><strong>${(d.collection_pct || 0).toFixed(1)}%</strong></div>
+          <div class="debt-stat"><span class="debt-stat-label">Faol</span><strong>${d.active_count} ta · ${fmtMoney(d.active_sum)}</strong></div>
+          <div class="debt-stat"><span class="debt-stat-label">Muddati o'tgan</span><strong class="debt-stat-red">${d.overdue_count} ta · ${fmtMoney(d.overdue_sum)}</strong></div>
+        </div>
+      </div>
+    ` : `
+      <div class="report-section">
+        <h3 class="report-section-title">📒 Qarzlar</h3>
+        <p class="page-sub">Hali qarzlar yo'q.</p>
+      </div>
+    `;
+
+    body.innerHTML = `
+      <div class="report-section">
+        <h3 class="report-section-title">💰 Sotuv — ${escHtml(data.label)}</h3>
+        <div class="debt-stats">
+          <div class="debt-stat"><span class="debt-stat-label">Buyurtmalar</span><strong>${s.orders_count}</strong></div>
+          <div class="debt-stat"><span class="debt-stat-label">Tushum</span><strong>${fmtMoney(s.revenue)}</strong></div>
+          <div class="debt-stat"><span class="debt-stat-label">Yalpi foyda</span><strong>${fmtMoney(s.gross_profit)}</strong></div>
+          <div class="debt-stat"><span class="debt-stat-label">Soliq</span><strong>${fmtMoney(s.tax)}</strong></div>
+          <div class="debt-stat"><span class="debt-stat-label">Xarajatlar</span><strong>${fmtMoney(s.expenses)}</strong></div>
+          <div class="debt-stat"><span class="debt-stat-label">Sof foyda</span><strong>${fmtMoney(s.final_net)}</strong></div>
+        </div>
+      </div>
+      ${debtsBlock}
+    `;
+  } catch (err) {
+    body.innerHTML = `<div class="empty-state"><div class="empty-state-icon">!</div><p class="empty-state-text">${escHtml(err.message)}</p></div>`;
   }
 }
 

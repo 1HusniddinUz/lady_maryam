@@ -57,6 +57,7 @@ async def report_period(call: CallbackQuery) -> None:
     async with get_session() as session:
         summary = await sales_summary(session, start, end)
         tax_name = await get_tax_name(session)
+        debts = await debts_report(session)
 
     arrow = profit_arrow(summary["final_net"])
     text = (
@@ -75,6 +76,14 @@ async def report_period(call: CallbackQuery) -> None:
         f"{arrow} <b>SOF FOYDA: {fmt_money(summary['final_net'])}</b>\n"
         f"   ({summary['net_pct']:.1f}% rentabellik)"
     )
+
+    if debts["total_count"] > 0:
+        text += (
+            f"\n\n📒 <b>Qarzlar (joriy holat):</b>\n"
+            f"🔴 Qoldiq: <b>{fmt_money(debts['total_outstanding'])}</b>\n"
+            f"🟡 Faol: {debts['active_count']} ta · "
+            f"🔴 Muddati o'tgan: {debts['overdue_count']} ta"
+        )
 
     await call.message.answer(text, reply_markup=report_period_actions_kb(period))
     await call.answer()

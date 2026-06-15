@@ -26,8 +26,9 @@ from services.order_service import (
 from services.user_service import get_or_create_user, is_admin
 from services.debt_service import (
     create_debt, get_debt, list_debts, add_payment, update_debt, delete_debt,
-    get_debt_stats, generate_reminder_text, log_reminder, outstanding,
+    get_debt_stats, generate_reminder_text, log_reminder, outstanding, debts_report,
 )
+from services.report_service import sales_summary, get_period_range
 from api.auth import get_telegram_id_from_request, verify_telegram_init_data
 
 
@@ -678,6 +679,28 @@ async def api_admin_debt_reminder(request: web.Request):
     return web.json_response({"success": True, "delivery_status": delivery, "message": text})
 
 
+# ─── ADMIN: HISOBOT (sotuv + qarzlar) ─────────────────────────────────
+
+async def api_admin_report(request: web.Request):
+    _, err = await _get_admin_or_unauthorized(request)
+    if err:
+        return err
+    period = request.query.get("period", "month")
+    start, end, label = get_period_range(period)
+    async with get_session() as session:
+        summary = await sales_summary(session, start, end)
+        debts = await debts_report(session)
+    # date obyektlarini JSON uchun stringga aylantirish
+    for d in debts.get("top_debtors", []):
+        d["due_date"] = d["due_date"].isoformat() if d.get("due_date") else None
+    return web.json_response({
+        "period": period,
+        "label": label,
+        "summary": summary,
+        "debts": debts,
+    })
+
+
 # ─── ROUTES ──────────────────────────────────────────────────────────
 
 def register_api_routes(app: web.Application) -> None:
@@ -699,8 +722,9 @@ def register_api_routes(app: web.Application) -> None:
     app.router.add_get("/api/orders/my", api_my_orders)
     app.router.add_post("/api/orders", api_order_create)
 
-    # Admin — me + qarzlar
+    # Admin — me + qarzlar + hisobot
     app.router.add_get("/api/me", api_me)
+    app.router.add_get("/api/admin/report", api_admin_report)
     app.router.add_get("/api/admin/debts", api_admin_debts)
     app.router.add_post("/api/admin/debts", api_admin_debt_create)
     app.router.add_patch("/api/admin/debts/{id}", api_admin_debt_update)
