@@ -1487,6 +1487,15 @@ input, textarea { font-family: inherit; }
 }
 .debt-stat-red { color: #A84C4C !important; }
 
+.report-section { margin-bottom: 22px; }
+.report-section-title {
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--ink);
+  margin: 0 0 12px;
+}
+
 .debt-card { cursor: pointer; }
 .debt-amounts {
   display: flex;
